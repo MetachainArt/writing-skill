@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>구름다리 휴게소 · 무지개 너머에서 다시 만나는 곳</title>
+  <meta name="description" content="먼저 떠난 반려동물을 위한 알록달록한 온라인 추모 메타버스. 별을 밝히고, 편지를 부치고, 함께 걷는 구름 위의 휴게소." />
+  <meta property="og:title" content="구름다리 휴게소" />
+  <meta property="og:description" content="먼저 떠난 아이를 위한 구름 위의 작은 휴게소. 별을 밝히고 편지를 부치세요." />
+  <meta property="og:type" content="website" />
+  <meta name="theme-color" content="#c9b6ff" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffb3c6'/%3E%3Cstop offset='.5' stop-color='%23c9b6ff'/%3E%3Cstop offset='1' stop-color='%23a0e7e5'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='30' fill='url(%23g)'/%3E%3Cpath d='M14 40a18 18 0 0 1 36 0' fill='none' stroke='%23fff' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='24' r='5' fill='%23fff'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="scene" aria-label="구름다리 휴게소 3D 월드"></canvas>
+
+    <!-- 입장 화면 -->
+    <section id="landing" class="screen">
+      <div class="landing-card">
+        <div class="landing-logo" aria-hidden="true">
+          <span class="arc a1"></span><span class="arc a2"></span><span class="arc a3"></span><span class="arc a4"></span>
+          <span class="paw">🐾</span>
+        </div>
+        <p class="eyebrow">무지개 너머, 구름 위의 작은 쉼터</p>
+        <h1>구름다리 휴게소</h1>
+        <p class="lead">먼저 떠난 아이는 여기서 쉬고 있어요.<br />별을 밝히고, 편지를 부치고, 잠깐 같이 걸어요.</p>
+        <label class="nick">
+          <span>오늘 방문자 이름</span>
+          <input id="nick-input" type="text" maxlength="12" placeholder="예: 리도" autocomplete="nickname" />
+        </label>
+        <div class="landing-actions">
+          <button id="enter-btn" class="btn primary big">휴게소 들어가기</button>
+          <button id="enter-create-btn" class="btn ghost big">바로 추모 별 만들기</button>
+        </div>
+        <p class="tiny">모든 기록은 지금은 이 기기의 브라우저에만 저장돼요. 계정·동기화는 곧 열려요.</p>
+      </div>
+      <div class="landing-stats" id="landing-stats"></div>
+    </section>
+
+    <!-- HUD -->
+    <div id="hud" hidden>
+      <div class="hud-top">
+        <div class="brand">
+          <span class="brand-dot"></span>
+          <span>구름다리 휴게소</span>
+          <span class="brand-sub" id="hud-zone">입구</span>
+        </div>
+        <div class="hud-tools">
+          <button id="time-btn" class="icon-btn" title="낮/밤 전환" aria-label="낮/밤 전환">🌤️</button>
+          <button id="sound-btn" class="icon-btn" title="소리 켜기/끄기" aria-label="소리">🔈</button>
+          <button id="dir-btn" class="icon-btn" title="별 목록" aria-label="별 목록">⭐</button>
+          <button id="help-btn" class="icon-btn" title="도움말" aria-label="도움말">?</button>
+        </div>
+      </div>
+
+      <div class="hud-bottom">
+        <div id="joystick" class="joystick" aria-hidden="true"><div class="stick"></div></div>
+        <div class="hint-wrap">
+          <button id="interact-btn" class="btn interact" hidden>살펴보기</button>
+          <p id="hint" class="hint">이동: WASD / 방향키 · 시점: 드래그 · 가까이 가면 살펴볼 수 있어요</p>
+        </div>
+        <button id="create-btn" class="btn primary fab">✨ 추모 별 만들기</button>
+      </div>
+    </div>
+
+    <div id="modal-root"></div>
+    <div id="toast-root" aria-live="polite"></div>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

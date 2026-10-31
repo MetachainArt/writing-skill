@@ -1,0 +1,47 @@
+# 구름다리 휴게소 (cloudbridge/) 를 GitHub Pages 로 배포한다.
+# 커스텀 도메인은 cloudbridge/public/CNAME (bridge.metacint.com) 에서 읽힌다.
+name: Deploy cloudbridge to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+    paths: ['cloudbridge/**', '.github/workflows/deploy-cloudbridge.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudbridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloudbridge/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: cloudbridge/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -83,7 +83,7 @@ export function openCreate({ nick, onSubmit }) {
   setTimeout(() => el.querySelector('input[name=name]').focus(), 50);
 }
 
-function shrinkImage(file, size) {
+export function shrinkImage(file, size) {
   return new Promise((res) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -101,13 +101,17 @@ function shrinkImage(file, size) {
 }
 
 // ───────────── 추모 카드 ─────────────
-export function openMemorial(m, { nick, onOffer, onLetter, onDelete, onVisitPet }) {
+export function openMemorial(m, { nick, onOffer, onLetter, onDelete, onVisitPet, onPhoto }) {
   const sp = speciesOf(m.species);
   const dw = daysWith(m), ds = daysSince(m);
   const render = () => {
     const el = modal(`${sp.emoji} ${esc(m.name)}의 별`, `
       <div class="mem-hero">
-        ${m.photo ? `<img class="mem-photo" src="${m.photo}" alt="${esc(m.name)}" />` : `<div class="mem-photo" style="background:${m.color}33">${sp.emoji}</div>`}
+        <label class="mem-photo-wrap" title="사진 올리기/바꾸기">
+          ${m.photo ? `<img class="mem-photo" src="${m.photo}" alt="${esc(m.name)}" />` : `<div class="mem-photo" style="background:${m.color}33">${sp.emoji}</div>`}
+          <span class="mem-photo-edit">📷</span>
+          <input type="file" accept="image/*" hidden id="mem-photo-input" />
+        </label>
         <div>
           <h3 class="mem-name">${esc(m.name)}</h3>
           <p class="mem-dates">${esc(sp.label)}${m.breed ? ' · ' + esc(m.breed) : ''}${m.owner ? ' · ' + esc(m.owner) + '의 아이' : ''}</p>
@@ -115,7 +119,8 @@ export function openMemorial(m, { nick, onOffer, onLetter, onDelete, onVisitPet 
         </div>
       </div>
       <div class="mem-epitaph">${esc(m.epitaph)}</div>
-      <div class="offerings">${OFFERINGS.map((o) => `<button class="offer" data-o="${o.id}"><b>${o.emoji}</b><small>${o.label}</small><em>${m.offerings[o.id] || 0}</em></button>`).join('')}</div>
+      <p class="section-title">올리기 · 누르면 정원의 별 앞에 실제로 놓여요</p>
+      <div class="offerings">${OFFERINGS.map((o) => `<button class="offer" data-o="${o.id}" title="${o.hint}"><b>${o.emoji}</b><small>${o.label}</small><em>${m.offerings[o.id] || 0}</em></button>`).join('')}</div>
       <div class="actions" style="justify-content:space-between">
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn soft" id="btn-letter">💌 편지 쓰기</button>
@@ -140,6 +145,12 @@ export function openMemorial(m, { nick, onOffer, onLetter, onDelete, onVisitPet 
       } catch { toast('공유를 취소했어요.'); }
     });
     el.querySelector('#btn-pet')?.addEventListener('click', () => { closeModal(); onVisitPet(m); });
+    el.querySelector('#mem-photo-input').addEventListener('change', async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const photo = await shrinkImage(f, 256);
+      if (!photo) { toast('사진을 읽지 못했어요.'); return; }
+      onPhoto(m, photo); render();
+    });
     el.querySelector('#btn-del')?.addEventListener('click', () => { if (confirm(`${m.name}의 별을 정원에서 내릴까요? 되돌릴 수 없어요.`)) { closeModal(); onDelete(m); } });
   };
   render();

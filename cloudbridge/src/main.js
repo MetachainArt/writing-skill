@@ -85,12 +85,13 @@ function handlers(m) {
       const n = store.offer(mm.id, type);
       world.refreshStarDecor(mm);
       const g = world.stars.get(mm.id);
-      world.burst(g.position.clone().add(new THREE.Vector3(0, 1.2, 0)), new THREE.Color(mm.color), 14);
-      audio.chime('soft');
+      world.burst(g.position.clone().add(new THREE.Vector3(0, 1.2, 0)), type === 'incense' ? new THREE.Color(0xeae6f2) : new THREE.Color(mm.color), type === 'incense' ? 8 : 14);
+      audio.chime(type === 'incense' ? 'letter' : 'soft');
       return n;
     },
     onLetter: (mm, from, text) => { store.addLetter(mm.id, from, text); audio.chime('letter'); ui.toast('편지가 우체통에 담겼어요. 밤에 등불이 되어 올라가요.'); },
     onDelete: (mm) => { store.remove(mm.id); world.removeStar(mm.id); const a = agents.get(mm.id); if (a) { world.scene.remove(a.mesh); agents.delete(mm.id); } ui.toast(`${mm.name}의 별을 조용히 내렸어요.`); },
+    onPhoto: (mm, photo) => { store.update(mm.id, { photo }); world.refreshStarPhoto(mm); audio.chime('soft'); ui.toast(`${mm.name}의 사진이 별 앞에 걸렸어요.`); },
     onVisitPet: (mm) => { const a = agents.get(mm.id); if (a) { player.teleport(new THREE.Vector3(a.pos.x + 1.5, 0, a.pos.z + 1.5)); } },
   };
 }

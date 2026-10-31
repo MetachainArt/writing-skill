@@ -68,6 +68,28 @@ function glowTexture() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
+// 업로드 사진을 둥근 액자 메달리온으로
+function photoSprite(dataUrl, colorHex) {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+  const sp = new THREE.Sprite(mat); sp.scale.set(1.7, 1.7, 1);
+  const img = new Image();
+  img.onload = () => {
+    g.clearRect(0, 0, 256, 256);
+    g.fillStyle = colorHex; g.beginPath(); g.arc(128, 128, 126, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(128, 128, 118, 0, Math.PI * 2); g.fill();
+    g.save(); g.beginPath(); g.arc(128, 128, 108, 0, Math.PI * 2); g.clip();
+    const sz = Math.min(img.width, img.height);
+    g.drawImage(img, (img.width - sz) / 2, (img.height - sz) / 2, sz, sz, 20, 20, 216, 216);
+    g.restore();
+    tex.needsUpdate = true;
+  };
+  img.src = dataUrl;
+  return sp;
+}
+
 export class World {
   constructor(canvas) {
     this.canvas = canvas;
@@ -448,14 +470,27 @@ export class World {
     glow.scale.set(3.6, 3.6, 1); glow.position.y = 1.9; g.add(glow);
     const label = makeLabel(`${m.name}`, { accent: m.color === '#ffffff' ? '#b79cff' : m.color }); label.position.y = 3.3; g.add(label);
     const decor = new THREE.Group(); g.add(decor);
-    g.userData = { memorialId: m.id, orb, glow, decor, phase: Math.random() * 10 };
+    g.userData = { memorialId: m.id, orb, glow, decor, label, phase: Math.random() * 10, orbBaseY: 1.9, photo: null, smoke: [] };
     const pos = this.starSlot(index);
     g.position.copy(pos);
     this.scene.add(g);
     this.stars.set(m.id, g);
     this.interactables.push({ id: m.id, kind: 'star', pos: pos.clone(), radius: 2.6, label: `${m.name}의 별 살펴보기`, memorialId: m.id });
     this.refreshStarDecor(m);
+    this.refreshStarPhoto(m);
     return g;
+  }
+  // 사진이 있으면 메달리온을 앞에 두고 별 구슬은 위로 작게 올린다
+  refreshStarPhoto(m) {
+    const g = this.stars.get(m.id); if (!g) return;
+    const u = g.userData;
+    if (u.photo) { g.remove(u.photo); u.photo.material.map.dispose(); u.photo.material.dispose(); u.photo = null; }
+    if (m.photo) {
+      u.photo = photoSprite(m.photo, m.color); u.photo.position.y = 1.85; g.add(u.photo);
+      u.orbBaseY = 3.1; u.orb.scale.setScalar(0.55); u.glow.scale.set(2.4, 2.4, 1); u.label.position.y = 4.1;
+    } else {
+      u.orbBaseY = 1.9; u.orb.scale.setScalar(1); u.glow.scale.set(3.6, 3.6, 1); u.label.position.y = 3.3;
+    }
   }
   removeStar(id) {
     const g = this.stars.get(id); if (!g) return;
@@ -469,8 +504,9 @@ export class World {
     const flowers = Math.min(10, Math.ceil(m.offerings.flower / 3));
     for (let i = 0; i < flowers; i++) {
       const a = (i / flowers) * Math.PI * 2 + 0.3;
-      const f = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), std([0xff9fbe, 0xffe680, 0xffffff, 0xc9b6ff][i % 4]));
-      f.position.set(Math.cos(a) * 1.35, 0.35, Math.sin(a) * 1.35); d.add(f);
+      const f = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), std([0xff9fbe, 0xffe680, 0xffffff, 0xc9b6ff, 0xffb98a][i % 5]));
+      f.position.set(Math.cos(a) * 1.35, 0.35, Math.sin(a) * 1.35); f.scale.y = 0.75; d.add(f);
+      const core = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 4), std(0xfff3b0)); core.position.set(Math.cos(a) * 1.35, 0.43, Math.sin(a) * 1.35); d.add(core);
       const s = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.35, 4), std(0x7fd78a)); s.position.set(Math.cos(a) * 1.35, 0.17, Math.sin(a) * 1.35); d.add(s);
     }
     const candles = Math.min(6, Math.ceil(m.offerings.candle / 4));
@@ -478,6 +514,32 @@ export class World {
       const a = (i / candles) * Math.PI * 2;
       const c = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.35, 8), std(0xfff8ec)); c.position.set(Math.cos(a) * 0.6, 0.67, Math.sin(a) * 0.6); d.add(c);
       const fl = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xffc46b, transparent: true, depthWrite: false })); fl.scale.set(0.5, 0.5, 1); fl.position.set(Math.cos(a) * 0.6, 0.95, Math.sin(a) * 0.6); d.add(fl);
+    }
+    // 분향: 향로 + 향 + 피어오르는 연기
+    for (const sm of g.userData.smoke) sm.userData.dead = true;
+    g.userData.smoke = [];
+    const sticks = Math.min(3, Math.ceil((m.offerings.incense || 0) / 3));
+    if (sticks > 0) {
+      const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.2, 0.22, 12), std(0xcbbfe6, { metalness: 0.2, roughness: 0.6 }));
+      bowl.position.set(0, 0.61, 1.0); d.add(bowl);
+      const ash = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.05, 12), std(0xe9e2f5)); ash.position.set(0, 0.73, 1.0); d.add(ash);
+      for (let i = 0; i < sticks; i++) {
+        const x = (i - (sticks - 1) / 2) * 0.09;
+        const st = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.55, 5), std(0x8a6a4a)); st.position.set(x, 1.0, 1.0); st.rotation.z = (i - 1) * 0.06; d.add(st);
+        const ember = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xff9a5c, transparent: true, depthWrite: false })); ember.scale.set(0.22, 0.22, 1); ember.position.set(x, 1.28, 1.0); d.add(ember);
+        // 연기 입자 4개가 순환
+        for (let k = 0; k < 4; k++) {
+          const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xeae6f2, transparent: true, opacity: 0, depthWrite: false }));
+          s.userData = { x, k: k / 4 + Math.random() * 0.1, dead: false };
+          d.add(s); g.userData.smoke.push(s);
+          this.animated.push({ obj: s, fn: (o, t) => {
+            const life = (t * 0.22 + o.userData.k) % 1;
+            o.position.set(o.userData.x + Math.sin(t * 1.5 + o.userData.k * 9) * 0.12 * life, 1.3 + life * 1.6, 1.0 + Math.cos(t * 1.1 + o.userData.k * 7) * 0.08 * life);
+            const sc = 0.15 + life * 0.6; o.scale.set(sc, sc, 1);
+            o.material.opacity = Math.sin(life * Math.PI) * 0.45;
+          } });
+        }
+      }
     }
     const treats = Math.min(5, Math.ceil(m.offerings.treat / 4));
     for (let i = 0; i < treats; i++) {
@@ -563,7 +625,7 @@ export class World {
     }
     for (const g of this.stars.values()) {
       const u = g.userData;
-      u.orb.position.y = 1.9 + Math.sin(t * 1.6 + u.phase) * 0.15;
+      u.orb.position.y = u.orbBaseY + Math.sin(t * 1.6 + u.phase) * 0.15;
       u.glow.position.y = u.orb.position.y;
       u.orb.rotation.y += dt * 0.5;
       u.glow.material.opacity = 0.6 + Math.sin(t * 2.2 + u.phase) * 0.15 + this.night * 0.2;

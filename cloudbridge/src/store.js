@@ -13,10 +13,11 @@ export const SPECIES = [
 export const COLORS = ['#ff9fbe', '#ffb98a', '#ffe680', '#8fe3a8', '#7fd8d6', '#a98bff', '#ffffff'];
 
 export const OFFERINGS = [
-  { id: 'flower', label: '꽃', emoji: '🌷' },
-  { id: 'treat', label: '간식', emoji: '🍖' },
-  { id: 'candle', label: '촛불', emoji: '🕯️' },
-  { id: 'pat', label: '쓰다듬기', emoji: '🤍' },
+  { id: 'flower', label: '꽃', emoji: '🌷', hint: '받침 둘레에 꽃이 늘어나요' },
+  { id: 'incense', label: '분향', emoji: '🪔', hint: '향로에 향을 올리고 연기가 피어올라요' },
+  { id: 'candle', label: '촛불', emoji: '🕯️', hint: '촛불이 하나씩 켜져요' },
+  { id: 'treat', label: '간식', emoji: '🍖', hint: '아이가 좋아하던 간식을 놓아요' },
+  { id: 'pat', label: '쓰다듬기', emoji: '🤍', hint: '별빛이 조금 더 커져요' },
 ];
 
 const SEED = [
@@ -60,7 +61,7 @@ export function normalizeMemorial(m) {
     epitaph: (m.epitaph || '').slice(0, 300),
     photo: m.photo || null,
     createdAt: m.createdAt || Date.now(),
-    offerings: { flower: 0, treat: 0, candle: 0, pat: 0, ...(m.offerings || {}) },
+    offerings: { flower: 0, incense: 0, treat: 0, candle: 0, pat: 0, ...(m.offerings || {}) },
     letters: Array.isArray(m.letters) ? m.letters : [],
     sample: !!m.sample,
   };
@@ -74,7 +75,7 @@ export const store = {
   seedIfEmpty() {
     if (this.state.seeded) return;
     const seeds = SEED.map((s, i) => normalizeMemorial({ ...s, sample: true, createdAt: Date.now() - (i + 1) * 86400000 * 9,
-      offerings: { flower: 12 + i * 7, treat: 5 + i * 3, candle: 9 + i * 2, pat: 30 + i * 11 },
+      offerings: { flower: 12 + i * 7, incense: 4 + i * 2, treat: 5 + i * 3, candle: 9 + i * 2, pat: 30 + i * 11 },
       letters: [{ id: uid(), from: '지나가던 방문자', text: '편히 쉬어, 아가. 좋은 꿈 꿔.', at: Date.now() - 86400000 * 3 }] }));
     this.state.memorials = [...seeds, ...this.state.memorials];
     this.state.seeded = true;
@@ -85,6 +86,15 @@ export const store = {
   add(data) {
     const m = normalizeMemorial(data);
     this.state.memorials.push(m);
+    this.save();
+    return m;
+  },
+  update(id, patch) {
+    const m = this.get(id);
+    if (!m) return null;
+    const allowed = ['name', 'breed', 'born', 'passed', 'owner', 'epitaph', 'photo', 'color'];
+    for (const k of allowed) if (k in patch) m[k] = patch[k];
+    Object.assign(m, normalizeMemorial(m));
     this.save();
     return m;
   },

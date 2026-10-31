@@ -1,4 +1,4 @@
-import { SPECIES, COLORS, OFFERINGS, shareUrl, starCode, starZoneName } from './store.js';
+import { SPECIES, COLORS, OFFERINGS, MAX_PHOTOS, shareUrl, starCode, starZoneName } from './store.js';
 import { HATS, BODY_COLORS } from './player.js';
 
 const root = () => document.getElementById('modal-root');
@@ -57,26 +57,26 @@ export function openCreate({ nick, onSubmit }) {
         <label class="field"><span>구름다리 건넌 날</span><input name="passed" type="date" /></label>
       </div>
       <div class="field"><span>별 빛깔</span><div class="swatches" id="swatches">${COLORS.map((c, i) => `<button type="button" class="swatch ${i === 0 ? 'on' : ''}" style="background:${c}" data-c="${c}" aria-label="${c}"></button>`).join('')}</div></div>
-      <div class="field"><span>사진 (선택)</span>
-        <label class="photo-drop" id="photo-drop"><span id="photo-preview">📷 눌러서 사진 올리기</span><input type="file" accept="image/*" hidden id="photo-input" /></label>
+      <div class="field"><span>사진 (선택 · 여러 장 가능, 최대 ${MAX_PHOTOS}장)</span>
+        <label class="photo-drop" id="photo-drop"><span id="photo-preview">📷 눌러서 사진 올리기</span><input type="file" accept="image/*" multiple hidden id="photo-input" /></label>
       </div>
       <label class="field"><span>아이에게 남기는 한마디 *</span><textarea name="epitaph" required maxlength="300" placeholder="예: 15년 동안 매일 현관에서 기다려줘서 고마워."></textarea></label>
       <p class="help">별을 만들면 아이가 구름다리를 건너 별빛 정원에 자리를 잡아요. 그 순간을 함께 지켜봐 주세요.</p>
       <div class="actions"><button type="button" class="btn soft" id="cancel-create">다음에</button><button type="submit" class="btn primary">별 밝히기</button></div>
     </form>`);
-  let species = SPECIES[0].id, color = COLORS[0], photo = null;
+  let species = SPECIES[0].id, color = COLORS[0], photos = [];
   el.querySelectorAll('#species-chips .chip').forEach((b) => b.addEventListener('click', () => { el.querySelectorAll('#species-chips .chip').forEach((x) => x.classList.remove('on')); b.classList.add('on'); species = b.dataset.id; }));
   el.querySelectorAll('.swatch').forEach((b) => b.addEventListener('click', () => { el.querySelectorAll('.swatch').forEach((x) => x.classList.remove('on')); b.classList.add('on'); color = b.dataset.c; }));
   el.querySelector('#photo-input').addEventListener('change', async (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    photo = await shrinkImage(f, 256);
-    el.querySelector('#photo-preview').innerHTML = `<img src="${photo}" alt="미리보기" /><span>사진 바꾸기</span>`;
+    const files = [...e.target.files].slice(0, MAX_PHOTOS - photos.length);
+    for (const f of files) { const p = await shrinkImage(f, 256); if (p) photos.push(p); }
+    el.querySelector('#photo-preview').innerHTML = `<div class="album-strip">${photos.map((p) => `<img src="${p}" alt="" />`).join('')}</div><span>${photos.length}장 · 더 올리기</span>`;
   });
   el.querySelector('#cancel-create').addEventListener('click', closeModal);
   el.querySelector('#create-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const data = { name: fd.get('name').trim(), owner: fd.get('owner').trim(), breed: fd.get('breed').trim(), born: fd.get('born'), passed: fd.get('passed'), epitaph: fd.get('epitaph').trim(), species, color, photo };
+    const data = { name: fd.get('name').trim(), owner: fd.get('owner').trim(), breed: fd.get('breed').trim(), born: fd.get('born'), passed: fd.get('passed'), epitaph: fd.get('epitaph').trim(), species, color, photos, photo: photos[0] || null };
     if (!data.name || !data.epitaph) return;
     closeModal();
     onSubmit(data);
@@ -102,17 +102,17 @@ export function shrinkImage(file, size) {
 }
 
 // ───────────── 추모 카드 ─────────────
-export function openMemorial(m, { nick, index, onOffer, onLetter, onDelete, onVisitPet, onPhoto, onWalk }) {
+export function openMemorial(m, { nick, index, onOffer, onLetter, onDelete, onVisitPet, onPhotos, onWalk }) {
   const sp = speciesOf(m.species);
   const code = index >= 0 ? starCode(index) : '';
   const dw = daysWith(m), ds = daysSince(m);
   const render = () => {
     const el = modal(`${sp.emoji} ${esc(m.name)}의 별`, `
       <div class="mem-hero">
-        <label class="mem-photo-wrap" title="사진 올리기/바꾸기">
+        <label class="mem-photo-wrap" title="사진 올리기">
           ${m.photo ? `<img class="mem-photo" src="${m.photo}" alt="${esc(m.name)}" />` : `<div class="mem-photo" style="background:${m.color}33">${sp.emoji}</div>`}
           <span class="mem-photo-edit">📷</span>
-          <input type="file" accept="image/*" hidden id="mem-photo-input" />
+          <input type="file" accept="image/*" multiple hidden id="mem-photo-input" />
         </label>
         <div>
           <h3 class="mem-name">${esc(m.name)}</h3>
@@ -121,6 +121,8 @@ export function openMemorial(m, { nick, index, onOffer, onLetter, onDelete, onVi
         </div>
       </div>
       <div class="mem-epitaph">${esc(m.epitaph)}</div>
+      ${m.photos.length ? `<p class="section-title">앨범 ${m.photos.length}/${MAX_PHOTOS} · 누르면 크게, ★ 대표 사진</p>
+      <div class="album-grid">${m.photos.map((p, i) => `<div class="album-item ${p === m.photo ? 'cover' : ''}"><img src="${p}" alt="" data-i="${i}" /><button class="album-star" data-i="${i}" title="대표 사진으로">★</button><button class="album-del" data-i="${i}" title="사진 빼기">✕</button></div>`).join('')}${m.photos.length < MAX_PHOTOS ? '<label class="album-add" title="사진 추가">＋<input type="file" accept="image/*" multiple hidden id="mem-photo-input2" /></label>' : ''}</div>` : ''}
       <p class="section-title">올리기 · 누르면 정원의 별 앞에 실제로 놓여요</p>
       <div class="offerings">${OFFERINGS.map((o) => `<button class="offer" data-o="${o.id}" title="${o.hint}"><b>${o.emoji}</b><small>${o.label}</small><em>${m.offerings[o.id] || 0}</em></button>`).join('')}</div>
       <div class="actions" style="justify-content:space-between">
@@ -149,15 +151,35 @@ export function openMemorial(m, { nick, index, onOffer, onLetter, onDelete, onVi
     });
     el.querySelector('#btn-pet')?.addEventListener('click', () => { closeModal(); onVisitPet(m); });
     el.querySelector('#btn-walk')?.addEventListener('click', () => { closeModal(); onWalk(m); });
-    el.querySelector('#mem-photo-input').addEventListener('change', async (e) => {
-      const f = e.target.files[0]; if (!f) return;
-      const photo = await shrinkImage(f, 256);
-      if (!photo) { toast('사진을 읽지 못했어요.'); return; }
-      onPhoto(m, photo); render();
-    });
+    const onFiles = async (e) => {
+      const files = [...e.target.files]; if (!files.length) return;
+      const urls = [];
+      for (const f of files) { const p = await shrinkImage(f, 256); if (p) urls.push(p); }
+      const n = onPhotos.add(m, urls);
+      toast(n ? `사진 ${n}장을 앨범에 넣었어요.` : `앨범이 가득 찼어요 (최대 ${MAX_PHOTOS}장).`);
+      render();
+    };
+    el.querySelector('#mem-photo-input').addEventListener('change', onFiles);
+    el.querySelector('#mem-photo-input2')?.addEventListener('change', onFiles);
+    el.querySelectorAll('.album-item img').forEach((img) => img.addEventListener('click', () => openLightbox(m, Number(img.dataset.i))));
+    el.querySelectorAll('.album-star').forEach((b) => b.addEventListener('click', () => { onPhotos.cover(m, Number(b.dataset.i)); render(); }));
+    el.querySelectorAll('.album-del').forEach((b) => b.addEventListener('click', () => { if (confirm('이 사진을 앨범에서 뺄까요?')) { onPhotos.remove(m, Number(b.dataset.i)); render(); } }));
     el.querySelector('#btn-del')?.addEventListener('click', () => { if (confirm(`${m.name}의 별을 정원에서 내릴까요? 되돌릴 수 없어요.`)) { closeModal(); onDelete(m); } });
   };
   render();
+}
+
+// ───────────── 사진 크게 보기 ─────────────
+function openLightbox(m, idx) {
+  const bg = document.createElement('div');
+  bg.className = 'lightbox';
+  let i = idx;
+  const draw = () => { bg.innerHTML = `<img src="${m.photos[i]}" alt="" /><div class="lb-bar"><button class="btn soft" id="lb-prev">‹</button><span>${esc(m.name)} · ${i + 1} / ${m.photos.length}</span><button class="btn soft" id="lb-next">›</button></div>`;
+    bg.querySelector('#lb-prev').addEventListener('click', (e) => { e.stopPropagation(); i = (i - 1 + m.photos.length) % m.photos.length; draw(); });
+    bg.querySelector('#lb-next').addEventListener('click', (e) => { e.stopPropagation(); i = (i + 1) % m.photos.length; draw(); }); };
+  draw();
+  bg.addEventListener('click', (e) => { if (e.target === bg || e.target.tagName === 'IMG') bg.remove(); });
+  document.body.appendChild(bg);
 }
 
 // ───────────── 편지 ─────────────

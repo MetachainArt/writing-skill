@@ -12,13 +12,13 @@ export const SPECIES = [
 
 export const COLORS = ['#ff9fbe', '#ffb98a', '#ffe680', '#8fe3a8', '#7fd8d6', '#a98bff', '#ffffff'];
 
+// 올리기는 향·초·꽃 세 가지. (간식·쓰다듬기 데이터는 호환을 위해 남아 있다)
 export const OFFERINGS = [
+  { id: 'incense', label: '향', emoji: '🪔', hint: '향로에 향을 올리고 연기가 피어올라요' },
+  { id: 'candle', label: '초', emoji: '🕯️', hint: '촛불이 하나씩 켜져요' },
   { id: 'flower', label: '꽃', emoji: '🌷', hint: '받침 둘레에 꽃이 늘어나요' },
-  { id: 'incense', label: '분향', emoji: '🪔', hint: '향로에 향을 올리고 연기가 피어올라요' },
-  { id: 'candle', label: '촛불', emoji: '🕯️', hint: '촛불이 하나씩 켜져요' },
-  { id: 'treat', label: '간식', emoji: '🍖', hint: '아이가 좋아하던 간식을 놓아요' },
-  { id: 'pat', label: '쓰다듬기', emoji: '🤍', hint: '별빛이 조금 더 커져요' },
 ];
+export const MAX_PHOTOS = 10;
 
 const SEED = [
   { id: 'seed-mong', name: '몽이', species: 'dog', breed: '말티즈', color: '#ffffff', born: '2009-03-02', passed: '2024-11-18', owner: '엄마', epitaph: '15년 동안 매일 현관에서 기다려줘서 고마워. 이제는 내가 기다릴게.' },
@@ -75,7 +75,8 @@ export function normalizeMemorial(m) {
     passed: m.passed || '',
     owner: (m.owner || '').slice(0, 12),
     epitaph: (m.epitaph || '').slice(0, 300),
-    photo: m.photo || null,
+    photo: m.photo || (Array.isArray(m.photos) && m.photos[0]) || null,
+    photos: Array.isArray(m.photos) && m.photos.length ? m.photos.slice(0, MAX_PHOTOS) : (m.photo ? [m.photo] : []),
     createdAt: m.createdAt || Date.now(),
     offerings: { flower: 0, incense: 0, treat: 0, candle: 0, pat: 0, ...(m.offerings || {}) },
     letters: Array.isArray(m.letters) ? m.letters : [],
@@ -129,11 +130,30 @@ export const store = {
   update(id, patch) {
     const m = this.get(id);
     if (!m) return null;
-    const allowed = ['name', 'breed', 'born', 'passed', 'owner', 'epitaph', 'photo', 'color'];
+    const allowed = ['name', 'breed', 'born', 'passed', 'owner', 'epitaph', 'photo', 'photos', 'color'];
     for (const k of allowed) if (k in patch) m[k] = patch[k];
     Object.assign(m, normalizeMemorial(m));
     this.save();
     return m;
+  },
+  // 사진 앨범
+  addPhotos(id, urls) {
+    const m = this.get(id); if (!m) return 0;
+    const room = MAX_PHOTOS - m.photos.length;
+    const add = urls.filter(Boolean).slice(0, Math.max(0, room));
+    m.photos.push(...add);
+    if (!m.photo && m.photos.length) m.photo = m.photos[0];
+    this.save(); return add.length;
+  },
+  removePhoto(id, idx) {
+    const m = this.get(id); if (!m) return;
+    const [gone] = m.photos.splice(idx, 1);
+    if (m.photo === gone) m.photo = m.photos[0] || null;
+    this.save();
+  },
+  setCover(id, idx) {
+    const m = this.get(id); if (!m || !m.photos[idx]) return;
+    m.photo = m.photos[idx]; this.save();
   },
   remove(id) {
     this.state.memorials = this.state.memorials.filter((m) => m.id !== id);

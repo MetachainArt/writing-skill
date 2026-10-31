@@ -135,7 +135,11 @@ function handlers(m) {
     },
     onLetter: (mm, from, text) => { store.addLetter(mm.id, from, text); audio.chime('letter'); ui.toast('편지가 우체통에 담겼어요. 밤에 등불이 되어 올라가요.'); },
     onDelete: (mm) => { store.remove(mm.id); world.removeStar(mm.id); const a = agents.get(mm.id); if (a) { world.scene.remove(a.mesh); agents.delete(mm.id); } ui.toast(`${mm.name}의 별을 조용히 내렸어요.`); },
-    onPhoto: (mm, photo) => { store.update(mm.id, { photo }); world.refreshStarPhoto(mm); audio.chime('soft'); ui.toast(`${mm.name}의 사진이 별 앞에 걸렸어요.`); },
+    onPhotos: {
+      add: (mm, urls) => { const n = store.addPhotos(mm.id, urls); world.refreshStarPhoto(mm); if (n) audio.chime('soft'); return n; },
+      remove: (mm, idx) => { store.removePhoto(mm.id, idx); world.refreshStarPhoto(mm); },
+      cover: (mm, idx) => { store.setCover(mm.id, idx); world.refreshStarPhoto(mm); ui.toast('대표 사진을 바꿨어요.'); },
+    },
     onVisitPet: (mm) => { const a = agents.get(mm.id); if (a) { player.teleport(new THREE.Vector3(a.pos.x + 1.5, 0, a.pos.z + 1.5)); } },
   };
 }

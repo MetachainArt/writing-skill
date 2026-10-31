@@ -68,25 +68,27 @@ function glowTexture() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
-// 업로드 사진을 둥근 액자 메달리온으로
-function photoSprite(dataUrl, colorHex) {
+// 업로드 사진을 둥근 액자 메달리온으로. 여러 장이면 천천히 바뀐다.
+function photoSprite(colorHex) {
   const c = document.createElement('canvas'); c.width = c.height = 256;
   const g = c.getContext('2d');
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
   const sp = new THREE.Sprite(mat); sp.scale.set(1.7, 1.7, 1);
-  const img = new Image();
-  img.onload = () => {
-    g.clearRect(0, 0, 256, 256);
-    g.fillStyle = colorHex; g.beginPath(); g.arc(128, 128, 126, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#fff'; g.beginPath(); g.arc(128, 128, 118, 0, Math.PI * 2); g.fill();
-    g.save(); g.beginPath(); g.arc(128, 128, 108, 0, Math.PI * 2); g.clip();
-    const sz = Math.min(img.width, img.height);
-    g.drawImage(img, (img.width - sz) / 2, (img.height - sz) / 2, sz, sz, 20, 20, 216, 216);
-    g.restore();
-    tex.needsUpdate = true;
+  sp.userData.setPhoto = (dataUrl) => {
+    const img = new Image();
+    img.onload = () => {
+      g.clearRect(0, 0, 256, 256);
+      g.fillStyle = colorHex; g.beginPath(); g.arc(128, 128, 126, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#fff'; g.beginPath(); g.arc(128, 128, 118, 0, Math.PI * 2); g.fill();
+      g.save(); g.beginPath(); g.arc(128, 128, 108, 0, Math.PI * 2); g.clip();
+      const sz = Math.min(img.width, img.height);
+      g.drawImage(img, (img.width - sz) / 2, (img.height - sz) / 2, sz, sz, 20, 20, 216, 216);
+      g.restore();
+      tex.needsUpdate = true;
+    };
+    img.src = dataUrl;
   };
-  img.src = dataUrl;
   return sp;
 }
 
@@ -506,8 +508,10 @@ export class World {
     const g = this.stars.get(m.id); if (!g) return;
     const u = g.userData;
     if (u.photo) { g.remove(u.photo); u.photo.material.map.dispose(); u.photo.material.dispose(); u.photo = null; }
-    if (m.photo) {
-      u.photo = photoSprite(m.photo, m.color); u.photo.position.y = 1.85; g.add(u.photo);
+    const list = (m.photos && m.photos.length) ? m.photos : (m.photo ? [m.photo] : []);
+    u.photoList = list; u.photoIdx = Math.max(0, list.indexOf(m.photo)); u.photoAt = performance.now();
+    if (list.length) {
+      u.photo = photoSprite(m.color); u.photo.userData.setPhoto(list[u.photoIdx]); u.photo.position.y = 1.85; g.add(u.photo);
       u.orbBaseY = 3.1; u.orb.scale.setScalar(0.55); u.glow.scale.set(2.4, 2.4, 1); u.label.position.y = 4.1;
     } else {
       u.orbBaseY = 1.9; u.orb.scale.setScalar(1); u.glow.scale.set(3.6, 3.6, 1); u.label.position.y = 3.3;
@@ -669,6 +673,10 @@ export class World {
       u.orb.position.y = u.orbBaseY + Math.sin(t * 1.6 + u.phase) * 0.15;
       u.glow.position.y = u.orb.position.y;
       u.orb.rotation.y += dt * 0.5;
+      if (u.photo && u.photoList && u.photoList.length > 1) {
+        if (performance.now() - u.photoAt > 6000) { u.photoAt = performance.now(); u.photoIdx = (u.photoIdx + 1) % u.photoList.length; u.photo.userData.setPhoto(u.photoList[u.photoIdx]); }
+      }
+      if (u.photo) u.photo.position.y = 1.85 + Math.sin(t * 1.1 + u.phase) * 0.05;
       u.glow.material.opacity = 0.6 + Math.sin(t * 2.2 + u.phase) * 0.15 + this.night * 0.2;
     }
     for (const s of this.treeLeaves.children) s.material.opacity = 0.5 + Math.sin(t * 2 + s.userData.p) * 0.35;

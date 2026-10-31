@@ -107,8 +107,8 @@ h1 { margin: 6px 0 10px; font-size: clamp(30px, 6vw, 42px); letter-spacing: -.02
 .mem-name { margin: 0; font-size: 24px; }
 .mem-dates { margin: 2px 0 0; color: var(--ink-soft); font-size: 13px; }
 .mem-epitaph { margin: 14px 0; padding: 14px 16px; background: linear-gradient(135deg, #fff5f8, #f3efff); border-radius: 16px; line-height: 1.6; white-space: pre-wrap; }
-.offerings { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
-@media (max-width: 420px) { .offerings { grid-template-columns: repeat(3, 1fr); } }
+.offerings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.offer b { font-size: 26px; }
 .offer { border: 0; background: #faf7ff; border-radius: 16px; padding: 10px 6px; cursor: pointer; display: grid; gap: 2px; justify-items: center; transition: transform .12s; }
 .offer:active { transform: scale(.94); }
 .offer b { font-size: 22px; }
@@ -155,3 +155,18 @@ h1 { margin: 6px 0 10px; font-size: clamp(30px, 6vw, 42px); letter-spacing: -.02
 @media (max-width: 640px) { .hud-left { top: 60px; } .side-btn { min-width: 48px; padding: 6px 8px; font-size: 11px; } .hud-right { bottom: 150px; } }
 /* ID 우선순위(#hud > *)를 이기기 위해 명시 */
 #hud .walk-chip, #hud .hud-left, #hud .hud-right, #hud .walk-chip *, #hud .hud-left *, #hud .hud-right *, #hud .emotes, #hud .emotes * { pointer-events: auto; }
+
+/* 앨범 */
+.album-strip { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.album-strip img { width: 52px; height: 52px; border-radius: 12px; object-fit: cover; border: 3px solid #fff; box-shadow: 0 4px 12px rgba(60,40,100,.14); }
+.album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.album-item { position: relative; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: #f3eeff; }
+.album-item img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; display: block; }
+.album-item.cover { outline: 3px solid #b79cff; }
+.album-item button { position: absolute; top: 4px; width: 24px; height: 24px; border: 0; border-radius: 50%; background: rgba(255,255,255,.92); font-size: 12px; cursor: pointer; display: grid; place-items: center; }
+.album-star { left: 4px; color: #d9a800; } .album-item.cover .album-star { background: #ffe680; }
+.album-del { right: 4px; color: #b23b5d; }
+.album-add { aspect-ratio: 1; border: 2px dashed #e0d5ff; border-radius: 14px; display: grid; place-items: center; font-size: 26px; color: #b79cff; cursor: pointer; }
+.lightbox { position: fixed; inset: 0; background: rgba(30,22,50,.88); z-index: 100; display: grid; place-items: center; gap: 10px; align-content: center; padding: 20px; animation: fade .2s ease; }
+.lightbox img { max-width: min(92vw, 560px); max-height: 70vh; border-radius: 20px; border: 6px solid #fff; box-shadow: var(--shadow); }
+.lb-bar { display: flex; gap: 12px; align-items: center; color: #fff; font-weight: 600; }

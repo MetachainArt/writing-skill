@@ -138,3 +138,20 @@ h1 { margin: 6px 0 10px; font-size: clamp(30px, 6vw, 42px); letter-spacing: -.02
 .cinema .bars { position: absolute; left: 0; right: 0; height: 9vh; background: rgba(40,30,70,.55); }
 .cinema .bars.top { top: 0; } .cinema .bars.bottom { bottom: 0; }
 .cinema .caption { position: relative; background: rgba(255,255,255,.9); border-radius: 999px; padding: 10px 18px; font-weight: 600; animation: rise .5s ease; }
+
+/* 추가: 코드 배지, 썸네일, 산책 칩, 감정 표현 바, 줌 */
+.code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: #f3eeff; border-radius: 6px; padding: 1px 6px; color: #6c4fd6; }
+.badge { font-size: 11px; background: #ffe1e8; color: #b23b5d; border-radius: 999px; padding: 1px 7px; }
+.dir-thumb { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex: none; border: 2px solid #fff; box-shadow: 0 4px 12px rgba(60,40,100,.12); }
+.dir-thumb.emoji { display: grid; place-items: center; font-size: 22px; }
+.hud-left { position: absolute; left: 12px; top: 64px; display: grid; gap: 8px; pointer-events: auto; }
+.side-btn { pointer-events: auto; border: 0; background: rgba(255,255,255,.88); border-radius: 16px; padding: 8px 10px; font-size: 12px; font-weight: 600; display: grid; justify-items: center; gap: 2px; box-shadow: 0 6px 18px rgba(60,40,100,.14); cursor: pointer; min-width: 54px; }
+.side-btn b { font-size: 20px; }
+.hud-right { position: absolute; right: 12px; bottom: 120px; display: grid; gap: 8px; pointer-events: auto; }
+.walk-chip { white-space: nowrap; pointer-events: auto; position: absolute; left: 50%; top: 64px; transform: translateX(-50%); background: rgba(255,255,255,.92); border-radius: 999px; padding: 8px 8px 8px 14px; display: flex; gap: 10px; align-items: center; font-weight: 600; font-size: 13px; box-shadow: 0 6px 18px rgba(60,40,100,.14); }
+.walk-chip .btn { padding: 6px 12px; font-size: 12px; }
+.emotes { display: flex; gap: 6px; justify-content: center; }
+.emotes button { pointer-events: auto; width: 40px; height: 40px; border-radius: 50%; border: 0; background: rgba(255,255,255,.9); font-size: 18px; box-shadow: 0 6px 18px rgba(60,40,100,.14); cursor: pointer; }
+@media (max-width: 640px) { .hud-left { top: 60px; } .side-btn { min-width: 48px; padding: 6px 8px; font-size: 11px; } .hud-right { bottom: 150px; } }
+/* ID 우선순위(#hud > *)를 이기기 위해 명시 */
+#hud .walk-chip, #hud .hud-left, #hud .hud-right, #hud .walk-chip *, #hud .hud-left *, #hud .hud-right *, #hud .emotes, #hud .emotes * { pointer-events: auto; }

@@ -34,7 +34,7 @@ function skyAt(t) {
 const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0, ...extra });
 
 // 캔버스 텍스처 라벨
-function makeLabel(text, { font = 'bold 44px sans-serif', pad = 24, bg = 'rgba(255,255,255,0.92)', fg = '#3a3350', accent = '#b79cff' } = {}) {
+export function makeLabel(text, { font = 'bold 44px sans-serif', pad = 24, bg = 'rgba(255,255,255,0.92)', fg = '#3a3350', accent = '#b79cff' } = {}) {
   const c = document.createElement('canvas');
   const ctx = c.getContext('2d');
   ctx.font = font;
@@ -445,6 +445,27 @@ export class World {
       bench.position.set(x, 0, z); bench.rotation.y = ry; this.scene.add(bench);
     });
 
+    // 조약돌 탑 (다리 들머리)
+    this.cairn = new THREE.Group();
+    const cairnBase = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.6, 0.25, 16), std(0xe6dccf)); cairnBase.position.y = 0.12; this.cairn.add(cairnBase);
+    this.cairnStones = new THREE.Group(); this.cairn.add(this.cairnStones);
+    const cairnLabel = makeLabel('조약돌 탑'); cairnLabel.position.y = 3.4; this.cairn.add(cairnLabel);
+    this.cairn.position.set(18, 0, 6);
+    this.scene.add(this.cairn);
+    this.interactables.push({ id: 'cairn', kind: 'cairn', pos: new THREE.Vector3(18, 0, 6), radius: 3.2, label: '조약돌 하나 올리기' });
+
+    // 위로의 광장 (중앙)
+    const plazaRing = new THREE.Mesh(new THREE.RingGeometry(3.2, 3.6, 48), std(0xfff1b8, { emissive: 0xfff1b8, emissiveIntensity: 0.35 }));
+    plazaRing.rotation.x = -Math.PI / 2; plazaRing.position.y = 0.04; this.scene.add(plazaRing);
+    const plazaSign = new THREE.Group();
+    const sp1 = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.6, 6), std(0xcf9a6d)); sp1.position.set(-1.2, 1.3, 0); plazaSign.add(sp1);
+    const sp2 = sp1.clone(); sp2.position.x = 1.2; plazaSign.add(sp2);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(3, 0.9, 0.12), std(0xfff8ec)); board.position.y = 2.3; plazaSign.add(board);
+    const signLabel = makeLabel('위로받고 싶어요 · 광장', { accent: '#ffb3c6' }); signLabel.position.y = 3.3; plazaSign.add(signLabel);
+    plazaSign.position.set(0, 0, -4.2);
+    this.scene.add(plazaSign);
+    this.interactables.push({ id: 'plaza', kind: 'plaza', pos: new THREE.Vector3(0, 0, -2.5), radius: 3.4, label: '위로의 광장 게시판 보기' });
+
     // 입구 간판
     const entry = makeLabel('🐾 구름다리 휴게소에 오신 걸 환영해요'); entry.position.set(0, 3.8, 21); this.scene.add(entry);
     const garden = makeLabel('별빛 정원'); garden.position.set(6, 5.2, 9); this.scene.add(garden);
@@ -456,7 +477,7 @@ export class World {
     const r = 2.4 + 1.55 * Math.sqrt(i + 0.6);
     return new THREE.Vector3(6 + Math.cos(a) * r, 0, 9 + Math.sin(a) * r);
   }
-  addStar(m, index) {
+  addStar(m, index, code) {
     if (this.stars.has(m.id)) return this.stars.get(m.id);
     const g = new THREE.Group();
     const color = new THREE.Color(m.color);
@@ -468,7 +489,7 @@ export class World {
     orb.position.y = 1.9; g.add(orb);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: color, transparent: true, opacity: 0.75, depthWrite: false }));
     glow.scale.set(3.6, 3.6, 1); glow.position.y = 1.9; g.add(glow);
-    const label = makeLabel(`${m.name}`, { accent: m.color === '#ffffff' ? '#b79cff' : m.color }); label.position.y = 3.3; g.add(label);
+    const label = makeLabel(code ? `${code}  ${m.name}` : m.name, { accent: m.color === '#ffffff' ? '#b79cff' : m.color }); label.position.y = 3.3; g.add(label);
     const decor = new THREE.Group(); g.add(decor);
     g.userData = { memorialId: m.id, orb, glow, decor, label, phase: Math.random() * 10, orbBaseY: 1.9, photo: null, smoke: [] };
     const pos = this.starSlot(index);
@@ -548,6 +569,26 @@ export class World {
     // 쓰다듬기 → 하트 반짝이 크기
     const pats = Math.min(1, m.offerings.pat / 80);
     g.userData.glow.scale.set(3.6 + pats * 1.4, 3.6 + pats * 1.4, 1);
+  }
+
+  // 조약돌 탑: 올린 수만큼 돌이 쌓인다 (시각 상한 40)
+  refreshCairn(count) {
+    const g = this.cairnStones;
+    while (g.children.length) g.remove(g.children[0]);
+    const n = Math.min(60, count);
+    const cols = [0xd9cfc1, 0xcfc3b4, 0xe8e0d6, 0xbfb3a6, 0xf0e7dc];
+    const PER = 12; // 한 기둥에 12개, 기둥은 가운데부터 둘레로
+    for (let i = 0; i < n; i++) {
+      const col = Math.floor(i / PER), j = i % PER;
+      const r = 0.5 - j * 0.028;
+      const st = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 7), std(cols[(i * 7) % cols.length]));
+      st.scale.set(1, 0.42, 0.9);
+      const ca = col === 0 ? 0 : (col - 1) * 1.26 + 0.4, cr = col === 0 ? 0 : 0.95;
+      st.position.set(Math.cos(ca) * cr + Math.sin(i * 3.1) * 0.03, 0.25 + r * 0.42 + j * 0.19, Math.sin(ca) * cr + Math.cos(i * 2.3) * 0.03);
+      st.rotation.y = i * 0.9;
+      g.add(st);
+    }
+    if (count > 60) { const extra = makeLabel(`조약돌 ${count}개`, { accent: '#cfc3b4' }); extra.position.y = 3.0; g.add(extra); }
   }
 
   // 반짝 효과 (헌화 등)

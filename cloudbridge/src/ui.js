@@ -1,4 +1,5 @@
-import { SPECIES, COLORS, OFFERINGS, shareUrl } from './store.js';
+import { SPECIES, COLORS, OFFERINGS, shareUrl, starCode, starZoneName } from './store.js';
+import { HATS, BODY_COLORS } from './player.js';
 
 const root = () => document.getElementById('modal-root');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -101,8 +102,9 @@ export function shrinkImage(file, size) {
 }
 
 // ───────────── 추모 카드 ─────────────
-export function openMemorial(m, { nick, onOffer, onLetter, onDelete, onVisitPet, onPhoto }) {
+export function openMemorial(m, { nick, index, onOffer, onLetter, onDelete, onVisitPet, onPhoto, onWalk }) {
   const sp = speciesOf(m.species);
+  const code = index >= 0 ? starCode(index) : '';
   const dw = daysWith(m), ds = daysSince(m);
   const render = () => {
     const el = modal(`${sp.emoji} ${esc(m.name)}의 별`, `
@@ -114,7 +116,7 @@ export function openMemorial(m, { nick, onOffer, onLetter, onDelete, onVisitPet,
         </label>
         <div>
           <h3 class="mem-name">${esc(m.name)}</h3>
-          <p class="mem-dates">${esc(sp.label)}${m.breed ? ' · ' + esc(m.breed) : ''}${m.owner ? ' · ' + esc(m.owner) + '의 아이' : ''}</p>
+          <p class="mem-dates">${code ? `<span class="code">${code}</span> · ` : ''}${esc(sp.label)}${m.breed ? ' · ' + esc(m.breed) : ''}${m.owner ? ' · ' + esc(m.owner) + '의 아이' : ''}${m.mine ? ' · <b>내 아이</b>' : ''}</p>
           <p class="mem-dates">${m.born ? fmtDate(m.born) + ' ~ ' : ''}${m.passed ? fmtDate(m.passed) : ''}${dw ? ` · 함께한 ${dw.toLocaleString()}일` : ''}${ds !== null ? ` · 건넌 지 ${ds}일` : ''}</p>
         </div>
       </div>
@@ -125,7 +127,8 @@ export function openMemorial(m, { nick, onOffer, onLetter, onDelete, onVisitPet,
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn soft" id="btn-letter">💌 편지 쓰기</button>
           <button class="btn soft" id="btn-share">🔗 공유</button>
-          ${onVisitPet ? '<button class="btn soft" id="btn-pet">🐾 아이 곁으로</button>' : ''}
+          ${onWalk ? '<button class="btn soft" id="btn-walk">🐾 같이 산책하기</button>' : ''}
+          ${onVisitPet ? '<button class="btn soft" id="btn-pet">📍 아이 곁으로</button>' : ''}
         </div>
         ${m.sample ? '' : '<button class="btn danger" id="btn-del">별 내리기</button>'}
       </div>
@@ -145,6 +148,7 @@ export function openMemorial(m, { nick, onOffer, onLetter, onDelete, onVisitPet,
       } catch { toast('공유를 취소했어요.'); }
     });
     el.querySelector('#btn-pet')?.addEventListener('click', () => { closeModal(); onVisitPet(m); });
+    el.querySelector('#btn-walk')?.addEventListener('click', () => { closeModal(); onWalk(m); });
     el.querySelector('#mem-photo-input').addEventListener('change', async (e) => {
       const f = e.target.files[0]; if (!f) return;
       const photo = await shrinkImage(f, 256);
@@ -191,12 +195,74 @@ export function openMailbox(memorials, { nick, onSubmit }) {
   }));
 }
 
-// ───────────── 별 목록 ─────────────
+// ───────────── 별 목록 (검색 · 구역 · 사진) ─────────────
 export function openDirectory(memorials, { onGo }) {
-  const sorted = [...memorials].sort((a, b) => b.createdAt - a.createdAt);
+  const items = memorials.map((m, i) => ({ m, i, code: starCode(i), zone: starZoneName(i) }));
   const el = modal(`⭐ 별빛 정원의 아이들 (${memorials.length})`, `
-    <div class="dir-list">${sorted.map((m) => `<button class="dir-item" data-id="${m.id}"><span class="dir-dot" style="color:${m.color};background:${m.color}"></span><div><b>${esc(m.name)}</b> <small>${esc(speciesOf(m.species).label)}${m.breed ? ' · ' + esc(m.breed) : ''} · 🌷${m.offerings.flower} 🕯️${m.offerings.candle} 💌${m.letters.length}</small></div></button>`).join('')}</div>`);
-  el.querySelectorAll('.dir-item').forEach((b) => b.addEventListener('click', () => { closeModal(); onGo(memorials.find((m) => m.id === b.dataset.id)); }));
+    <label class="field"><span>이름 또는 별 번호로 찾기</span><input id="dir-q" placeholder="예: 몽이, 1-03" autocomplete="off" /></label>
+    <p class="help">자리는 모자라지 않아요. 아이가 올 때마다 정원이 넓어져요.</p>
+    <div class="dir-list" id="dir-list"></div>`);
+  const list = el.querySelector('#dir-list');
+  const render = (q) => {
+    const qq = (q || '').trim().toLowerCase();
+    const rows = items.filter(({ m, code }) => !qq || m.name.toLowerCase().includes(qq) || code.includes(qq) || (m.breed || '').toLowerCase().includes(qq)).reverse();
+    list.innerHTML = rows.length ? rows.map(({ m, code, zone }) => `<button class="dir-item" data-id="${m.id}">
+      ${m.photo ? `<img class="dir-thumb" src="${m.photo}" alt="" />` : `<span class="dir-thumb emoji" style="background:${m.color}33">${speciesOf(m.species).emoji}</span>`}
+      <div><b>${esc(m.name)}</b> <span class="code">${code}</span>${m.mine ? ' <span class="badge">내 아이</span>' : ''}<small>${zone} · ${esc(speciesOf(m.species).label)}${m.breed ? ' · ' + esc(m.breed) : ''} · 🌷${m.offerings.flower} 🪔${m.offerings.incense || 0} 💌${m.letters.length}</small></div></button>`).join('') : '<p class="help">찾는 아이가 없어요.</p>';
+    list.querySelectorAll('.dir-item').forEach((b) => b.addEventListener('click', () => { closeModal(); onGo(memorials.find((m) => m.id === b.dataset.id)); }));
+  };
+  render('');
+  el.querySelector('#dir-q').addEventListener('input', (e) => render(e.target.value));
+}
+
+// ───────────── 내 아이 ─────────────
+export function openMyPets(mine, allMemorials, { onGo, onCreate }) {
+  if (!mine.length) { onCreate(); return; }
+  if (mine.length === 1) { onGo(mine[0]); return; }
+  const el = modal('🐾 내 아이들', `<div class="dir-list">${mine.map((m) => `<button class="dir-item" data-id="${m.id}">${m.photo ? `<img class="dir-thumb" src="${m.photo}" alt="" />` : `<span class="dir-thumb emoji" style="background:${m.color}33">${speciesOf(m.species).emoji}</span>`}<div><b>${esc(m.name)}</b> <span class="code">${starCode(allMemorials.indexOf(m))}</span></div></button>`).join('')}</div>`);
+  el.querySelectorAll('.dir-item').forEach((b) => b.addEventListener('click', () => { closeModal(); onGo(mine.find((m) => m.id === b.dataset.id)); }));
+}
+
+// ───────────── 아바타 꾸미기 ─────────────
+export function openAvatar(avatar, nick, { onSave }) {
+  let a = { ...avatar };
+  const el = modal('🧑 내 모습 꾸미기', `
+    <label class="field"><span>이름표</span><input id="av-nick" maxlength="12" value="${esc(nick)}" placeholder="예: 몽이 엄마" /></label>
+    <div class="field"><span>옷 색</span><div class="swatches" id="av-body">${BODY_COLORS.map((c) => `<button type="button" class="swatch ${c === a.body ? 'on' : ''}" style="background:${c}" data-c="${c}"></button>`).join('')}</div></div>
+    <div class="field"><span>머리 장식</span><div class="chips" id="av-hat">${HATS.map((h) => `<button type="button" class="chip ${h.id === a.hat ? 'on' : ''}" data-id="${h.id}">${h.label}</button>`).join('')}</div></div>
+    <div class="field"><span>장식 색</span><div class="swatches" id="av-hatc">${BODY_COLORS.map((c) => `<button type="button" class="swatch ${c === a.hatColor ? 'on' : ''}" style="background:${c}" data-c="${c}"></button>`).join('')}</div></div>
+    <div class="actions"><button class="btn primary" id="av-save">이렇게 할게요</button></div>`);
+  const pick = (sel, key, attr) => el.querySelectorAll(sel + ' > *').forEach((b) => b.addEventListener('click', () => { el.querySelectorAll(sel + ' > *').forEach((x) => x.classList.remove('on')); b.classList.add('on'); a[key] = b.dataset[attr]; onSave({ ...a, preview: true }); }));
+  pick('#av-body', 'body', 'c'); pick('#av-hat', 'hat', 'id'); pick('#av-hatc', 'hatColor', 'c');
+  el.querySelector('#av-save').addEventListener('click', () => { closeModal(); onSave({ ...a, nick: el.querySelector('#av-nick').value.trim() }); });
+}
+
+// ───────────── 조약돌 탑 ─────────────
+export function openCairn(pebbles, { onAdd }) {
+  const el = modal('🪨 조약돌 탑', `
+    <p class="help">말로 하기 어려운 마음은 돌 하나로 올려요. 돌은 탑에 그대로 쌓여요. 지금까지 <b>${pebbles.length}</b>개.</p>
+    <form id="cairn-form">
+      <label class="field"><span>돌에 새길 한 줄 (선택, 60자)</span><input name="text" maxlength="60" placeholder="예: 보고 싶다, 그뿐이야." /></label>
+      <div class="actions"><button type="submit" class="btn primary">조약돌 올리기</button></div>
+    </form>
+    ${pebbles.length ? `<p class="section-title">최근 올린 돌</p><div class="letters">${pebbles.slice(0, 8).map((p) => `<div class="letter">${p.text ? esc(p.text) : '<i>말없이 올린 돌</i>'}<div class="meta">${new Date(p.at).toLocaleDateString('ko-KR')}</div></div>`).join('')}</div>` : ''}`);
+  el.querySelector('#cairn-form').addEventListener('submit', (e) => { e.preventDefault(); const text = new FormData(e.target).get('text').trim(); closeModal(); onAdd(text); });
+}
+
+// ───────────── 위로의 광장 게시판 ─────────────
+export function openPlaza(posts, nick, { onPost, onPat }) {
+  const render = () => {
+    const el = modal('🫶 위로받고 싶어요', `
+      <p class="help">여기 적힌 글엔 답을 달지 않아요. 대신 <b>토닥</b>을 눌러요. 토닥은 "나도 그래요"라는 뜻이에요.</p>
+      <form id="plaza-form">
+        <label class="field"><span>오늘의 마음 (200자)</span><textarea name="text" required maxlength="200" placeholder="예: 보낸 지 한 달인데 아직 사료 그릇을 못 치웠어요."></textarea></label>
+        <div class="row"><label class="field"><span>이름</span><input name="from" maxlength="12" value="${esc(nick)}" placeholder="익명" /></label><div class="field" style="display:flex;align-items:end"><button type="submit" class="btn primary" style="width:100%">광장에 남기기</button></div></div>
+      </form>
+      <div class="letters">${posts.map((p) => `<div class="letter"><div>${esc(p.text)}</div><div class="meta" style="display:flex;justify-content:space-between;align-items:center"><span>— ${esc(p.from)} · ${new Date(p.at).toLocaleDateString('ko-KR')}</span><button class="btn soft pat" data-id="${p.id}" style="padding:4px 10px">🤍 토닥 ${p.pats}</button></div></div>`).join('')}</div>`);
+    el.querySelector('#plaza-form').addEventListener('submit', (e) => { e.preventDefault(); const fd = new FormData(e.target); const text = fd.get('text').trim(); if (!text) return; onPost(text, fd.get('from').trim()); render(); });
+    el.querySelectorAll('.pat').forEach((b) => b.addEventListener('click', () => { const n = onPat(b.dataset.id); b.textContent = `🤍 토닥 ${n}`; b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.15)' }, { transform: 'scale(1)' }], { duration: 220 }); }));
+  };
+  render();
 }
 
 // ───────────── 힐링 라운지 ─────────────
@@ -226,6 +292,9 @@ export function openHelp() {
         <li>별·나무·우체통·건물 가까이 가면 <span class="kbd">E</span> 또는 <b>살펴보기</b> 버튼</li>
         <li>동쪽의 무지개 구름다리를 끝까지 걸어가면 <b>빛의 문</b>이 있어요</li>
         <li>오른쪽 위 🌤️ 로 낮·노을·밤을 바꿀 수 있어요. 밤에는 반딧불이 나와요</li>
+        <li>추모 카드의 <b>같이 산책하기</b>를 누르면 아이가 따라와요. 다리 끝까지도 같이 갈 수 있어요</li>
+        <li>아래 👋 🙏 💗 로 인사·묵념·하트를 보낼 수 있어요</li>
+        <li><b>홈 화면에 추가</b>: iPhone은 Safari 공유 → 홈 화면에 추가, Android는 Chrome 메뉴 → 홈 화면에 추가. 앱처럼 열려요</li>
       </ul>
     </div>`);
 }

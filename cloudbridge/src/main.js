@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { World } from './world.js';
 import { Player } from './player.js';
 import { buildPet, PetAgent } from './pets.js';
-import { store, importFromHash } from './store.js';
+import { store, importFromHash, starCode } from './store.js';
 import { audio } from './audio.js';
 import { runCeremony } from './ceremony.js';
 import * as ui from './ui.js';
@@ -11,6 +11,7 @@ const $ = (s) => document.querySelector(s);
 
 // ───────────── 부팅 ─────────────
 store.seedIfEmpty();
+store.seedPostsIfEmpty();
 const shared = importFromHash();
 
 const world = new World($('#scene'));
@@ -20,8 +21,10 @@ let ceremony = null;
 let nearest = null;
 let entered = false;
 
+let walking = null; // 산책 중인 PetAgent
+let walkTimer = 0;
 function spawnStar(m, index) {
-  const g = world.addStar(m, index);
+  const g = world.addStar(m, index, starCode(index));
   if (!agents.has(m.id)) {
     const mesh = buildPet(m.species, m.color);
     world.scene.add(mesh);
@@ -29,6 +32,8 @@ function spawnStar(m, index) {
   }
 }
 store.memorials.forEach((m, i) => spawnStar(m, i));
+world.refreshCairn(store.state.pebbles.length);
+player.applyAvatar(store.state.avatar);
 
 function slotIndexFor(m) { return store.memorials.indexOf(m); }
 
@@ -44,6 +49,7 @@ function enter(thenCreate) {
   if (entered) return;
   entered = true;
   store.setNick($('#nick-input').value.trim());
+  player.setName(store.state.nick);
   store.countVisit();
   audio.setEnabled(store.state.settings.sound !== false);
   audio.unlock();
@@ -68,6 +74,42 @@ $('#time-btn').addEventListener('click', () => { const m = world.cycleTime(); $(
 $('#sound-btn').addEventListener('click', () => { const v = !audio.enabled; audio.setEnabled(v); store.setSetting('sound', v); $('#sound-btn').textContent = v ? '🔈' : '🔇'; });
 $('#dir-btn').addEventListener('click', () => ui.openDirectory(store.memorials, { onGo: (m) => { const p = world.stars.get(m.id).position; player.teleport(new THREE.Vector3(p.x + 1.6, 0, p.z + 1.6)); ui.toast(`${m.name}의 별 앞으로 왔어요`); } }));
 $('#help-btn').addEventListener('click', () => ui.openHelp());
+const goTo = (m) => { const p = world.stars.get(m.id).position; player.teleport(new THREE.Vector3(p.x + 1.6, 0, p.z + 1.6)); ui.toast(`${m.name}의 별 앞으로 왔어요`); };
+$('#mine-btn').addEventListener('click', () => ui.openMyPets(store.mine, store.memorials, { onGo: goTo, onCreate: () => { ui.toast('아직 내 아이의 별이 없어요. 먼저 만들어 볼까요?'); openCreate(); } }));
+$('#avatar-btn').addEventListener('click', () => ui.openAvatar(store.state.avatar, store.state.nick, { onSave: (a) => { player.applyAvatar(a); if (a.preview) return; store.setAvatar({ body: a.body, hat: a.hat, hatColor: a.hatColor }); if (a.nick !== undefined) { store.setNick(a.nick); player.setName(a.nick); } ui.toast('새 모습으로 바꿨어요'); } }));
+$('#cairn-btn').addEventListener('click', () => { player.teleport(new THREE.Vector3(16.5, 0, 7.5)); ui.toast('조약돌 탑 앞으로 왔어요'); });
+$('#zoom-in').addEventListener('click', () => player.zoom(-2));
+$('#zoom-out').addEventListener('click', () => player.zoom(2));
+$('#em-wave').addEventListener('click', () => player.emote('wave'));
+$('#em-bow').addEventListener('click', () => { if (player.emote('bow')) audio.chime('soft'); });
+$('#em-heart').addEventListener('click', () => { if (player.emote('heart')) audio.chime('soft'); });
+$('#walk-end').addEventListener('click', endWalk);
+addEventListener('keydown', (e) => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+  if (!entered || ui.isModalOpen()) return;
+  if (e.key === '1') player.emote('wave'); if (e.key === '2') player.emote('bow'); if (e.key === '3') player.emote('heart');
+});
+
+// ───────────── 산책 ─────────────
+const WALK_LINES = (n) => [
+  `${n}이(가) 옆에서 나란히 걷고 있어요`, `${n}이(가) 잠깐 멈춰 풀냄새를 맡아요`, `${n}이(가) 가만히 올려다봐요`, `${n}의 꼬리가 천천히 흔들려요`,
+  `${n}이(가) 앞서 갔다가 돌아와요`, `바람이 불자 ${n}이(가) 귀를 쫑긋해요`, `${n}이(가) 당신 발걸음에 맞춰 속도를 늦춰요`,
+];
+function startWalk(m) {
+  const a = agents.get(m.id); if (!a) return;
+  if (walking && walking !== a) walking.endWalk();
+  walking = a; a.startWalk(); walkTimer = 4;
+  $('#walk-chip').hidden = false; $('#walk-label').textContent = `🐾 ${m.name}와(과) 산책 중`;
+  audio.chime('soft');
+  ui.toast(`${m.name}이(가) 따라와요. 어디든 같이 가요. 다리 끝까지도요.`);
+}
+function endWalk() {
+  if (!walking) return;
+  const m = store.get(walking.memorialId);
+  walking.endWalk(); walking = null;
+  $('#walk-chip').hidden = true;
+  if (m) ui.toast(`${m.name}이(가) 자기 별로 돌아가요. 또 걸어요.`);
+}
 $('#create-btn').addEventListener('click', openCreate);
 $('#interact-btn').addEventListener('click', interact);
 addEventListener('keydown', (e) => {
@@ -81,6 +123,8 @@ const nick = () => store.state.nick || '방문자';
 function handlers(m) {
   return {
     nick: nick(),
+    index: store.indexOf(m),
+    onWalk: (mm) => startWalk(mm),
     onOffer: (mm, type) => {
       const n = store.offer(mm.id, type);
       world.refreshStarDecor(mm);
@@ -102,6 +146,8 @@ function interact() {
   else if (it.kind === 'tree') ui.openLetter(null, { nick: nick(), title: '🍃 기억의 나무에 잎 달기', onSubmit: (from, text) => { const all = store.memorials; const target = all[Math.floor(Math.random() * all.length)]; if (target) store.addLetter(target.id, from, text); audio.chime('letter'); world.burst(new THREE.Vector3(12, 8, -12), 0xfff6c8, 24); ui.toast('잎이 하나 더 반짝여요. 누군가의 아이에게 닿았어요.'); } });
   else if (it.kind === 'mailbox') ui.openMailbox(store.memorials, { nick: nick(), onSubmit: (m, from, text) => { if (m) store.addLetter(m.id, from, text); else { const all = store.memorials; all.forEach((x) => { if (Math.random() < 0.3) store.addLetter(x.id, from, text); }); } audio.chime('letter'); world.burst(new THREE.Vector3(-7, 2.5, 11), 0xff9fbe, 20); ui.toast('편지를 부쳤어요.'); } });
   else if (it.kind === 'lounge') ui.openLounge(store.totals());
+  else if (it.kind === 'cairn') ui.openCairn(store.state.pebbles, { onAdd: (text) => { store.addPebble(text); world.refreshCairn(store.state.pebbles.length); world.burst(new THREE.Vector3(18, 1.5, 6), 0xf0e7dc, 10); audio.chime('soft'); ui.toast(text ? '돌에 마음을 새겨 올렸어요.' : '말없이 돌 하나를 올렸어요.'); } });
+  else if (it.kind === 'plaza') ui.openPlaza(store.state.posts, nick(), { onPost: (text, from) => { store.addPost(text, from); audio.chime('letter'); ui.toast('광장에 남겼어요. 누군가 토닥여 줄 거예요.'); }, onPat: (id) => store.patPost(id) });
   else if (it.kind === 'bridge') ui.openBridgeInfo();
   else if (it.kind === 'gate') { ui.openGate(); audio.chime('star'); }
 }
@@ -111,9 +157,9 @@ function openCreate() {
   if (!entered) { enter(true); return; }
   if (ceremony) return;
   ui.openCreate({ nick: nick(), onSubmit: (data) => {
-    const m = store.add(data);
+    const m = store.add({ ...data, mine: true });
     const idx = slotIndexFor(m);
-    const g = world.addStar(m, idx);
+    const g = world.addStar(m, idx, starCode(idx));
     g.visible = false;
     $('#hud').hidden = true;
     const cinema = document.createElement('div');
@@ -141,7 +187,9 @@ function openCreate() {
 // ───────────── 루프 ─────────────
 const zoneName = (p) => {
   if (p.x > 23 && Math.abs(p.z) < 3) return p.x > 90 ? '빛의 문' : '구름다리';
-  if (Math.hypot(p.x - 6, p.z - 9) < 13) return '별빛 정원';
+  if (Math.hypot(p.x - 18, p.z - 6) < 3.5) return '조약돌 탑';
+  if (Math.hypot(p.x, p.z) < 4) return '위로의 광장';
+  if (Math.hypot(p.x - 6, p.z - 9) < 13) return `별빛 정원`;
   if (Math.hypot(p.x + 13, p.z + 8) < 9) return '힐링 라운지 앞';
   if (Math.hypot(p.x - 12, p.z + 12) < 8) return '기억의 나무';
   return '휴게소 광장';
@@ -150,6 +198,8 @@ let last = performance.now();
 let hintTimer = 0;
 function loop(now) {
   requestAnimationFrame(loop);
+// 테스트/디버그용 최소 훅 (데이터 접근 없음)
+window.__cb = { teleport: (x, z) => player.teleport(new THREE.Vector3(x, 0, z)) };
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   const t = now / 1000;
   world.update(dt, t);
@@ -161,7 +211,12 @@ function loop(now) {
     world.camera.lookAt(0, 2, 0);
   }
   const pp = player.pos;
-  for (const a of agents.values()) { a.paused = !!ceremony; a.update(dt, t, pp); }
+  const groundFn = (x, z) => world.groundHeight(x, z);
+  for (const a of agents.values()) { a.paused = !!ceremony; a.update(dt, t, pp, groundFn); }
+  if (walking && entered && !ceremony) {
+    walkTimer -= dt;
+    if (walkTimer <= 0) { walkTimer = 9 + Math.random() * 7; const m = store.get(walking.memorialId); if (m && !ui.isModalOpen()) { const lines = WALK_LINES(m.name); ui.toast(lines[Math.floor(Math.random() * lines.length)]); } }
+  }
   // 근접 상호작용
   if (entered && !ceremony) {
     let best = null, bd = 1e9;
@@ -180,3 +235,5 @@ function loop(now) {
   world.render();
 }
 requestAnimationFrame(loop);
+// 테스트/디버그용 최소 훅 (데이터 접근 없음)
+window.__cb = { teleport: (x, z) => player.teleport(new THREE.Vector3(x, 0, z)) };

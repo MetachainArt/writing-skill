@@ -107,17 +107,49 @@ export class PetAgent {
     this.speed = 1.3;
     this.mesh.position.copy(this.pos);
     this.paused = false;
+    this.following = false; // 산책 중
+    this.returning = false; // 산책 끝나고 집으로
+    this.sniffTimer = 0;
   }
+  startWalk() { this.following = true; this.returning = false; }
+  endWalk() { this.following = false; this.returning = true; }
   _pickTarget() {
     const a = Math.random() * Math.PI * 2, r = 1.4 + Math.random() * 2.6;
     this.target.set(this.home.x + Math.cos(a) * r, 0, this.home.z + Math.sin(a) * r);
     if (this.target.length() > 23.5) this.target.copy(this.home);
   }
-  update(dt, t, playerPos) {
+  update(dt, t, playerPos, groundFn) {
     if (this.paused) return;
-    const toPlayer = playerPos ? Math.hypot(playerPos.x - this.pos.x, playerPos.z - this.pos.z) : 99;
     const nearHome = Math.hypot(playerPos.x - this.home.x, playerPos.z - this.home.z);
-    if (nearHome < 6) {
+    if (this.following) {
+      // 산책: 보호자 뒤를 따라오고, 가끔 멈춰 냄새를 맡는다
+      this.state = 'walk';
+      const dir = new THREE.Vector3(playerPos.x - this.pos.x, 0, playerPos.z - this.pos.z);
+      const d = dir.length();
+      this.sniffTimer -= dt;
+      if (this.sniffTimer < -2.2) this.sniffTimer = 5 + Math.random() * 7;
+      const sniffing = this.sniffTimer < 0 && d < 6;
+      if (d > 1.6 && !sniffing) {
+        dir.normalize();
+        const sp = d > 5 ? this.speed * 5.5 : this.speed * 2.4;
+        const step = Math.min(d - 1.4, sp * dt);
+        const nx = this.pos.x + dir.x * step, nz = this.pos.z + dir.z * step;
+        // 걸을 수 있는 곳으로만 (다리 폭 밖으로 떨어지지 않게)
+        if (!groundFn || groundFn(nx, nz) !== null) { this.pos.x = nx; this.pos.z = nz; }
+        else { this.pos.x += (playerPos.x - this.pos.x) * Math.min(1, dt * 3); this.pos.z += (playerPos.z - this.pos.z) * Math.min(1, dt * 3); }
+        this.moving = true; this.yaw = Math.atan2(dir.x, dir.z);
+      } else { this.moving = false; if (d < 2.2) this.yaw = Math.atan2(dir.x, dir.z); }
+      this.happy = d < 2.0 && !sniffing;
+      if (groundFn) { const h = groundFn(this.pos.x, this.pos.z); if (h !== null) this.pos.y += (h - this.pos.y) * Math.min(1, dt * 10); }
+      if (d > 14) { this.pos.set(playerPos.x, playerPos.y, playerPos.z); } // 너무 멀어지면 바로 곁으로
+    } else if (this.returning) {
+      this.state = 'return';
+      const dir = new THREE.Vector3().subVectors(this.home, this.pos); dir.y = 0;
+      const d = dir.length();
+      if (d < 1.2) { this.returning = false; this.pos.y = 0; this._pickTarget(); }
+      else { dir.normalize(); this.pos.addScaledVector(dir, this.speed * 2.4 * dt); this.moving = true; this.yaw = Math.atan2(dir.x, dir.z); if (groundFn) { const h = groundFn(this.pos.x, this.pos.z); if (h !== null) this.pos.y += (h - this.pos.y) * Math.min(1, dt * 10); } }
+      this.happy = false;
+    } else if (nearHome < 6) {
       this.state = 'greet';
       const dir = new THREE.Vector3(playerPos.x - this.pos.x, 0, playerPos.z - this.pos.z);
       const d = dir.length();

@@ -34,8 +34,24 @@ function uid() {
 }
 
 function blank() {
-  return { memorials: [], visits: 0, nick: '', settings: { sound: true, time: 'auto' }, seeded: false };
+  return { memorials: [], visits: 0, nick: '', settings: { sound: true, time: 'auto' }, seeded: false,
+    avatar: { body: '#c9b6ff', hat: 'cone', hatColor: '#a0e7e5' }, pebbles: [], posts: [], seededPosts: false };
 }
+
+// 별 주소: 20개마다 한 구역. 희소성은 없다 — 정원은 계속 넓어진다.
+export function starCode(index) {
+  const zone = Math.floor(index / 20) + 1, num = (index % 20) + 1;
+  return `${zone}-${String(num).padStart(2, '0')}`;
+}
+export function starZoneName(index) { return `별빛 정원 ${Math.floor(index / 20) + 1}구역`; }
+
+const SEED_POSTS = [
+  { text: '보낸 지 한 달인데 아직 사료 그릇을 못 치웠어요.', from: '콩이 엄마', pats: 23 },
+  { text: '산책 코스 지나갈 때마다 눈물이 나요. 다들 어떻게 지나가세요?', from: '익명', pats: 41 },
+  { text: '오늘 처음 별 만들었어요. 손이 떨렸는데 아이가 다리 건너는 거 보고 울었어요.', from: '두부 누나', pats: 58 },
+  { text: '"유난이다"라는 말 들었어요. 여기 오니까 유난 아닌 것 같아서 좋아요.', from: '익명', pats: 77 },
+  { text: '1주기였어요. 편지 부치고 왔어요. 다들 고마워요.', from: '보리 할머니', pats: 35 },
+];
 
 function load() {
   try {
@@ -64,6 +80,7 @@ export function normalizeMemorial(m) {
     offerings: { flower: 0, incense: 0, treat: 0, candle: 0, pat: 0, ...(m.offerings || {}) },
     letters: Array.isArray(m.letters) ? m.letters : [],
     sample: !!m.sample,
+    mine: !!m.mine,
   };
 }
 
@@ -81,6 +98,26 @@ export const store = {
     this.state.seeded = true;
     this.save();
   },
+  seedPostsIfEmpty() {
+    if (this.state.seededPosts) return;
+    this.state.posts = SEED_POSTS.map((p, i) => ({ id: uid(), ...p, at: Date.now() - (i + 1) * 86400000 * 2, mine: false }));
+    this.state.seededPosts = true;
+    this.save();
+  },
+  get mine() { return this.state.memorials.filter((m) => m.mine); },
+  indexOf(m) { return this.state.memorials.indexOf(m); },
+  // 조약돌 탑
+  addPebble(text) {
+    const p = { id: uid(), text: (text || '').slice(0, 60), at: Date.now() };
+    this.state.pebbles.unshift(p); this.save(); return p;
+  },
+  // 위로의 광장 게시판
+  addPost(text, from) {
+    const p = { id: uid(), text: text.slice(0, 200), from: (from || '익명').slice(0, 12), pats: 0, at: Date.now(), mine: true };
+    this.state.posts.unshift(p); this.save(); return p;
+  },
+  patPost(id) { const p = this.state.posts.find((x) => x.id === id); if (!p) return 0; p.pats += 1; this.save(); return p.pats; },
+  setAvatar(a) { this.state.avatar = { ...this.state.avatar, ...a }; this.save(); },
   get memorials() { return this.state.memorials; },
   get(id) { return this.state.memorials.find((m) => m.id === id); },
   add(data) {

@@ -38,12 +38,13 @@ function blank() {
     avatar: { body: '#c9b6ff', hat: 'cone', hatColor: '#a0e7e5' }, pebbles: [], posts: [], seededPosts: false };
 }
 
-// 별 주소: 20개마다 한 구역. 희소성은 없다 — 정원은 계속 넓어진다.
+// 별 주소: 섬(구역) 하나에 60개. 60개가 차면 새 구역 섬이 구름 위에 떠오른다. 희소성은 없다.
+export const ISLAND_CAP = 50;
 export function starCode(index) {
-  const zone = Math.floor(index / 20) + 1, num = (index % 20) + 1;
+  const zone = Math.floor(index / ISLAND_CAP) + 1, num = (index % ISLAND_CAP) + 1;
   return `${zone}-${String(num).padStart(2, '0')}`;
 }
-export function starZoneName(index) { return `별빛 정원 ${Math.floor(index / 20) + 1}구역`; }
+export function starZoneName(index) { const z = Math.floor(index / ISLAND_CAP) + 1; return z === 1 ? '별빛 정원 (본섬)' : `별빛 정원 ${z}구역 섬`; }
 
 const SEED_POSTS = [
   { text: '보낸 지 한 달인데 아직 사료 그릇을 못 치웠어요.', from: '콩이 엄마', pats: 23 },

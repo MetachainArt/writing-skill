@@ -336,3 +336,34 @@ export function openGate() {
       <p>문 앞에 잠시 서서, 하고 싶었던 말을 속으로 해 보세요. 들린다고 믿는 쪽이 조금 더 따뜻하니까요.</p>
     </div>`);
 }
+
+// ───────────── 별의 방 시트 (3D 디오라마 위에 얹는 얇은 패널) ─────────────
+export function openRoomSheet(m, { index, onOffer, onAlbum, onLetter, onWalk, onShare, onClose }) {
+  closeRoomSheet();
+  const sp = speciesOf(m.species);
+  const code = index >= 0 ? starCode(index) : '';
+  const el = document.createElement('div');
+  el.className = 'sheet'; el.id = 'room-sheet';
+  el.innerHTML = `
+    <div class="sheet-head">
+      <div><b>${sp.emoji} ${esc(m.name)}의 별</b> <span class="code">${code}</span>${m.mine ? ' <span class="badge">내 아이</span>' : ''}<small>${esc(sp.label)}${m.breed ? ' · ' + esc(m.breed) : ''}${m.owner ? ' · ' + esc(m.owner) + '의 아이' : ''} · 편지 ${m.letters.length}통</small></div>
+      <button class="close-x" id="sheet-close" aria-label="닫기">✕</button>
+    </div>
+    <div class="sheet-offer">${OFFERINGS.map((o) => `<button class="offer" data-o="${o.id}" title="${o.hint}"><b>${o.emoji}</b><small>${o.label} 올리기</small><em>${m.offerings[o.id] || 0}</em></button>`).join('')}</div>
+    <div class="sheet-actions">
+      <button class="btn soft" id="sh-album">🖼️ 앨범·편지함</button>
+      <button class="btn soft" id="sh-letter">💌 편지 쓰기</button>
+      <button class="btn soft" id="sh-walk">🐾 같이 산책</button>
+      <button class="btn soft" id="sh-share">🔗 공유</button>
+    </div>`;
+  document.getElementById('app').appendChild(el);
+  el.querySelectorAll('.offer').forEach((b) => b.addEventListener('click', () => { const n = onOffer(m, b.dataset.o); b.querySelector('em').textContent = n; b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }], { duration: 240 }); }));
+  el.querySelector('#sheet-close').addEventListener('click', onClose);
+  el.querySelector('#sh-album').addEventListener('click', onAlbum);
+  el.querySelector('#sh-letter').addEventListener('click', onLetter);
+  el.querySelector('#sh-walk').addEventListener('click', onWalk);
+  el.querySelector('#sh-share').addEventListener('click', onShare);
+  return el;
+}
+export function closeRoomSheet() { document.getElementById('room-sheet')?.remove(); }
+export function isRoomSheetOpen() { return !!document.getElementById('room-sheet'); }

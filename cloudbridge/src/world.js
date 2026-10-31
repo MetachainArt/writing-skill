@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 // ───────────────────────── 색상 팔레트 (파스텔) ─────────────────────────
 export const PASTEL = {
@@ -8,6 +12,15 @@ export const PASTEL = {
 const RAINBOW = [0xff9fbe, 0xffb98a, 0xffe680, 0x9fe79f, 0x8fe0f0, 0xa98bff, 0xf0b3ff];
 
 export const ISLAND_RADIUS = 25;
+export const ISLAND_CAP = 50;
+const SAT_RADIUS = 17;
+// 구역 섬 배치: 본섬 둘레에 고리 모양으로. 동쪽(+x)은 구름다리가 있어 비워 둔다.
+function satellitePos(k) {
+  const ring = Math.floor((k - 1) / 9), slot = (k - 1) % 9;
+  const dist = 62 + ring * 44;
+  const a = 0.55 + slot * (2 * Math.PI - 1.1) / 9 + (ring % 2) * 0.3; // 0.55~5.73 rad: +x 근처 비움
+  return new THREE.Vector3(Math.cos(a) * dist, 0, Math.sin(a) * dist);
+}
 const SKY_KEYS = [
   // t, top, horizon, light, fog
   { t: 0.0, top: 0x1b1a3f, hor: 0x46407a, sun: 0x8f8fd6, amb: 0.35 },
@@ -50,7 +63,7 @@ export function makeLabel(text, { font = 'bold 44px sans-serif', pad = 24, bg = 
   g.fillText(text, pad + 18, 46);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: true });
   const sp = new THREE.Sprite(mat);
   const scale = 0.0052;
   sp.scale.set(c.width * scale, c.height * scale, 1);
@@ -92,12 +105,43 @@ function photoSprite(colorHex) {
   return sp;
 }
 
+// 잔디 질감: 부드러운 점묘 노이즈 (외부 파일 없음)
+function grassTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const g = c.getContext('2d');
+  g.fillStyle = '#a4e8a6'; g.fillRect(0, 0, 512, 512);
+  const cols = ['#9be09f', '#b4f0b2', '#8fd996', '#c0f4c3', '#a9ecab'];
+  for (let i = 0; i < 2600; i++) {
+    g.fillStyle = cols[i % cols.length]; g.globalAlpha = 0.35 + Math.random() * 0.4;
+    const x = Math.random() * 512, y = Math.random() * 512, r = 3 + Math.random() * 9;
+    g.beginPath(); g.ellipse(x, y, r, r * 0.6, Math.random() * 3, 0, Math.PI * 2); g.fill();
+  }
+  g.globalAlpha = 0.5; g.strokeStyle = '#7fd78a'; g.lineWidth = 1.2;
+  for (let i = 0; i < 1400; i++) { const x = Math.random() * 512, y = Math.random() * 512; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (Math.random() - 0.5) * 4, y - 4 - Math.random() * 6); g.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(7, 7); t.anisotropy = 4;
+  return t;
+}
+function marbleTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff8ec'; g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = 'rgba(214,196,170,0.35)'; g.lineWidth = 1.5;
+  for (let i = 0; i < 14; i++) { g.beginPath(); let x = Math.random() * 256, y = Math.random() * 256; g.moveTo(x, y); for (let k = 0; k < 6; k++) { x += (Math.random() - 0.5) * 90; y += (Math.random() - 0.5) * 90; g.lineTo(x, y); } g.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 3);
+  return t;
+}
+
 export class World {
   constructor(canvas) {
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
+    this.quality = (navigator.hardwareConcurrency || 4) >= 4 && !/Android|iPhone|iPad/i.test(navigator.userAgent) ? 'high' : 'medium';
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 900);
     this.camera.position.set(0, 8, 30);
@@ -120,15 +164,28 @@ export class World {
     this._fireflies();
     this._starfield();
     this._deco();
+    this._post();
+    this.room = null;
+    this.cameraLock = null; // 별의 방 모드에서 카메라를 월드가 잡는다
     this.resize();
     addEventListener('resize', () => this.resize());
   }
+
+  _post() {
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.16, 0.35, 0.93);
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
+  }
+  setQuality(q) { this.quality = q; this.resize(); }
 
   resize() {
     const w = innerWidth, h = innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    if (this.composer) { this.composer.setSize(w, h); this.composer.setPixelRatio(Math.min(devicePixelRatio, this.quality === 'high' ? 2 : 1.5)); }
   }
 
   // ───────────── 조명 / 하늘 ─────────────
@@ -136,8 +193,16 @@ export class World {
     this.hemi = new THREE.HemisphereLight(0xffffff, 0xffd6e8, 0.9);
     this.sun = new THREE.DirectionalLight(0xffffff, 1.6);
     this.sun.position.set(30, 50, 20);
+    this.sun.castShadow = true;
+    this.sun.shadow.mapSize.set(2048, 2048);
+    const sc = this.sun.shadow.camera; sc.left = -42; sc.right = 42; sc.top = 42; sc.bottom = -42; sc.near = 5; sc.far = 220;
+    this.sun.shadow.bias = -0.0006; this.sun.shadow.normalBias = 0.03; this.sun.shadow.radius = 4;
     this.amb = new THREE.AmbientLight(0xffffff, 0.25);
-    this.scene.add(this.hemi, this.sun, this.amb);
+    this.scene.add(this.hemi, this.sun, this.sun.target, this.amb);
+    // 해 (하늘의 빛 번짐)
+    this.sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xfff3c4, transparent: true, opacity: 0.9, depthWrite: false, fog: false }));
+    this.sunSprite.scale.set(40, 40, 1);
+    this.scene.add(this.sunSprite);
   }
   _sky() {
     const geo = new THREE.SphereGeometry(420, 32, 16);
@@ -155,8 +220,10 @@ export class World {
   // ───────────── 섬 ─────────────
   _island() {
     const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(ISLAND_RADIUS + 1, ISLAND_RADIUS - 5, 7, 56, 1), [std(PASTEL.earth), std(PASTEL.grass), std(PASTEL.earthDark)]);
+    this.grassTex = grassTexture();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(ISLAND_RADIUS + 1, ISLAND_RADIUS - 5, 7, 56, 1), [std(PASTEL.earth), std(0xffffff, { map: this.grassTex }), std(PASTEL.earthDark)]);
     body.position.y = -3.5;
+    body.receiveShadow = true; body.castShadow = true;
     g.add(body);
     // 아래 매달린 뿌리 돌
     for (let i = 0; i < 9; i++) {
@@ -171,15 +238,17 @@ export class World {
     for (let i = 0; i < 14; i++) {
       const a = Math.random() * Math.PI * 2, d = 6 + Math.random() * 16;
       const m = new THREE.Mesh(new THREE.SphereGeometry(1.5 + Math.random() * 2.2, 12, 8), std(i % 3 ? PASTEL.grassDark : 0xb6f0a8));
-      m.position.set(Math.cos(a) * d, -0.9, Math.sin(a) * d); m.scale.y = 0.45; g.add(m);
+      m.position.set(Math.cos(a) * d, -0.9, Math.sin(a) * d); m.scale.y = 0.45; m.receiveShadow = true; m.castShadow = true; g.add(m);
     }
     // 길
-    const path = new THREE.Mesh(new THREE.RingGeometry(9.5, 11.5, 64), std(PASTEL.cream));
-    path.rotation.x = -Math.PI / 2; path.position.y = 0.03; g.add(path);
-    const path2 = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 16), std(PASTEL.cream));
-    path2.rotation.x = -Math.PI / 2; path2.position.set(17, 0.03, 0); path2.rotation.z = Math.PI / 2; g.add(path2);
-    const path3 = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 12), std(PASTEL.cream));
-    path3.rotation.x = -Math.PI / 2; path3.position.set(0, 0.03, 16); g.add(path3);
+    this.marbleTex = marbleTexture();
+    const marble = std(0xffffff, { map: this.marbleTex, roughness: 0.55 });
+    const path = new THREE.Mesh(new THREE.RingGeometry(9.5, 11.5, 64), marble);
+    path.rotation.x = -Math.PI / 2; path.position.y = 0.03; path.receiveShadow = true; g.add(path);
+    const path2 = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 16), marble);
+    path2.rotation.x = -Math.PI / 2; path2.position.set(17, 0.03, 0); path2.rotation.z = Math.PI / 2; path2.receiveShadow = true; g.add(path2);
+    const path3 = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 12), marble);
+    path3.rotation.x = -Math.PI / 2; path3.position.set(0, 0.03, 16); path3.receiveShadow = true; g.add(path3);
     // 꽃 (인스턴스)
     const count = 220;
     const head = new THREE.InstancedMesh(new THREE.SphereGeometry(0.17, 8, 6), new THREE.MeshStandardMaterial({ roughness: 0.9 }), count);
@@ -197,15 +266,16 @@ export class World {
       stem.setMatrixAt(i, dummy.matrix);
     }
     head.instanceColor.needsUpdate = true;
+    head.castShadow = true;
     g.add(head, stem);
     // 롤리팝 나무
     const treeCols = [PASTEL.pink, PASTEL.mint, PASTEL.lavender, PASTEL.peach];
     [[-20, 4], [-18, -14], [20, 14], [8, -20], [-8, -21], [21, -8], [-21, 12]].forEach(([x, z], i) => {
       const t = new THREE.Group();
       const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.45, 2.6, 8), std(0xcf9a6d));
-      trunk.position.y = 1.3;
+      trunk.position.y = 1.3; trunk.castShadow = true;
       const crown = new THREE.Mesh(new THREE.SphereGeometry(1.9 + (i % 3) * 0.3, 14, 10), std(treeCols[i % 4]));
-      crown.position.y = 3.6;
+      crown.position.y = 3.6; crown.castShadow = true;
       t.add(trunk, crown); t.position.set(x, 0, z); g.add(t);
       this.animated.push({ obj: crown, fn: (o, t0) => { o.scale.y = 1 + Math.sin(t0 * 1.2 + i) * 0.025; } });
     });
@@ -280,6 +350,13 @@ export class World {
   groundHeight(x, z) {
     const d = Math.hypot(x, z);
     if (d <= ISLAND_RADIUS) return 0;
+    if (this.islands) for (const isl of this.islands.values()) {
+      if (Math.hypot(x - isl.center.x, z - isl.center.z) <= SAT_RADIUS) return 0;
+      // 구름 길 복도
+      const px = x - isl.from.x, pz = z - isl.from.z;
+      const t = (px * isl.dir.x + pz * isl.dir.z);
+      if (t >= -0.5 && t <= isl.len + 0.5) { const ox = px - isl.dir.x * t, oz = pz - isl.dir.z * t; if (Math.hypot(ox, oz) <= 2.1) return 0; }
+    }
     if (x >= 21 && x <= 97 && Math.abs(z) <= 2.1) return this.bridgeHeightAt(x) + 0.4;
     if (Math.hypot(x - 98, z) <= 7.2) return 30.6 + 0.8;
     return null;
@@ -444,7 +521,7 @@ export class World {
       const seat = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.18, 0.7), std(0xfff8ec)); seat.position.y = 0.55; bench.add(seat);
       const back = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.6, 0.12), std(0xfff8ec)); back.position.set(0, 0.95, -0.3); bench.add(back);
       [-1, 1].forEach((s) => { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.55, 0.6), std(0xcf9a6d)); leg.position.set(s * 1, 0.27, 0); bench.add(leg); });
-      bench.position.set(x, 0, z); bench.rotation.y = ry; this.scene.add(bench);
+      bench.position.set(x, 0, z); bench.rotation.y = ry; bench.traverse((o) => { if (o.isMesh) o.castShadow = true; }); this.scene.add(bench);
     });
 
     // 조약돌 탑 (다리 들머리)
@@ -468,6 +545,9 @@ export class World {
     this.scene.add(plazaSign);
     this.interactables.push({ id: 'plaza', kind: 'plaza', pos: new THREE.Vector3(0, 0, -2.5), radius: 3.4, label: '위로의 광장 게시판 보기' });
 
+    // 장식물 전부 그림자 드리우기 (스프라이트 제외)
+    [b, tree, mb, this.cairn].forEach((grp) => grp.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } }));
+
     // 입구 간판
     const entry = makeLabel('🐾 구름다리 휴게소에 오신 걸 환영해요'); entry.position.set(0, 3.8, 21); this.scene.add(entry);
     const garden = makeLabel('별빛 정원'); garden.position.set(6, 5.2, 9); this.scene.add(garden);
@@ -475,22 +555,55 @@ export class World {
 
   // ───────────── 추모 별 ─────────────
   starSlot(i) {
-    const a = i * 2.39996 + 0.6;
-    const r = 2.4 + 1.55 * Math.sqrt(i + 0.6);
-    return new THREE.Vector3(6 + Math.cos(a) * r, 0, 9 + Math.sin(a) * r);
+    const k = Math.floor(i / ISLAND_CAP), j = i % ISLAND_CAP;
+    const a = j * 2.39996 + 0.6;
+    if (k === 0) {
+      const r = 2.2 + 1.72 * Math.sqrt(j + 0.6);
+      return new THREE.Vector3(5 + Math.cos(a) * r, 0, 8 + Math.sin(a) * r);
+    }
+    const c = this.ensureIsland(k);
+    const r = 1.8 + 1.72 * Math.sqrt(j + 0.6);
+    return new THREE.Vector3(c.x + Math.cos(a) * r, 0, c.z + Math.sin(a) * r);
+  }
+  // 구역 섬: 필요할 때 만들어지고, 본섬과 구름 길로 이어진다
+  ensureIsland(k) {
+    this.islands ??= new Map();
+    if (this.islands.has(k)) return this.islands.get(k).center;
+    const center = satellitePos(k);
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(SAT_RADIUS + 1, SAT_RADIUS - 4, 6, 40, 1), [std(PASTEL.earth), std(0xffffff, { map: this.grassTex }), std(PASTEL.earthDark)]);
+    body.position.y = -3; body.receiveShadow = true; g.add(body);
+    for (let i = 0; i < 5; i++) { const a = Math.random() * Math.PI * 2, d = 9 + Math.random() * 6; const m = new THREE.Mesh(new THREE.SphereGeometry(1.2 + Math.random() * 1.6, 10, 7), std(i % 2 ? PASTEL.grassDark : 0xb6f0a8)); m.position.set(Math.cos(a) * d, -0.8, Math.sin(a) * d); m.scale.y = 0.45; g.add(m); }
+    const cols = [PASTEL.pink, PASTEL.mint, PASTEL.lavender, PASTEL.peach];
+    for (let i = 0; i < 4; i++) { const a = i * 1.7 + 0.4, d = SAT_RADIUS - 3.5; const t = new THREE.Group(); const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.4, 2.2, 8), std(0xcf9a6d)); trunk.position.y = 1.1; trunk.castShadow = true; const crown = new THREE.Mesh(new THREE.SphereGeometry(1.6, 12, 9), std(cols[(i + k) % 4])); crown.position.y = 3.1; crown.castShadow = true; t.add(trunk, crown); t.position.set(Math.cos(a) * d, 0, Math.sin(a) * d); g.add(t); }
+    const lbl = makeLabel(`별빛 정원 ${k + 1}구역`); lbl.position.set(0, 6.5, 0); g.add(lbl);
+    // 아래 구름
+    for (let i = 0; i < 3; i++) { const c = this._cloud(8 + Math.random() * 4, 0xffffff); const a = (i / 3) * Math.PI * 2; c.position.set(Math.cos(a) * 8, -9 - Math.random() * 3, Math.sin(a) * 8); g.add(c); }
+    g.position.copy(center);
+    this.scene.add(g);
+    // 구름 길: 본섬 가장자리 → 구역 섬 가장자리
+    const dir = center.clone().normalize();
+    const from = dir.clone().multiplyScalar(ISLAND_RADIUS - 1), to = center.clone().sub(dir.clone().multiplyScalar(SAT_RADIUS - 1));
+    const len = from.distanceTo(to);
+    const walk = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.3, len), std(0xfff8ec, { map: this.marbleTex }));
+    walk.position.copy(from.clone().add(to).multiplyScalar(0.5)); walk.position.y = -0.12; walk.rotation.y = Math.atan2(dir.x, dir.z); walk.receiveShadow = true; this.scene.add(walk);
+    for (let i = 0; i <= Math.floor(len / 7); i++) { const c = this._cloud(3.5, 0xffffff); c.position.copy(from.clone().lerp(to, i / Math.max(1, Math.floor(len / 7)))); c.position.y = -2.4; c.position.x += (Math.random() - 0.5) * 2; this.scene.add(c); this.animated.push({ obj: c, fn: (o, t) => { o.position.y = -2.4 + Math.sin(t * 0.6 + i) * 0.3; } }); }
+    for (let i = 1; i < Math.floor(len / 5); i++) { for (const sd of [-1, 1]) { const b = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), std(0xffffff, { emissive: 0xfff1c9, emissiveIntensity: 0.6 })); const pp = from.clone().lerp(to, i / Math.floor(len / 5)); const side = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(sd * 2.0); b.position.copy(pp).add(side); b.position.y = 0.9; this.scene.add(b); const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 5), std(0xffffff)); post.position.copy(b.position); post.position.y = 0.45; this.scene.add(post); } }
+    this.islands.set(k, { center, from, to, dir, len });
+    return center;
   }
   addStar(m, index, code) {
     if (this.stars.has(m.id)) return this.stars.get(m.id);
     const g = new THREE.Group();
     const color = new THREE.Color(m.color);
     const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.9, 0.5, 14), std(PASTEL.cream));
-    ped.position.y = 0.25; g.add(ped);
+    ped.position.y = 0.25; ped.castShadow = true; ped.receiveShadow = true; g.add(ped);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.07, 8, 32), std(color.getHex(), { emissive: color.getHex(), emissiveIntensity: 0.5 }));
     ring.rotation.x = Math.PI / 2; ring.position.y = 0.52; g.add(ring);
     const orb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 20, 14), new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity: 1.2, roughness: 0.4 }));
     orb.position.y = 1.9; g.add(orb);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: color, transparent: true, opacity: 0.75, depthWrite: false }));
-    glow.scale.set(3.6, 3.6, 1); glow.position.y = 1.9; g.add(glow);
+    glow.scale.set(2.6, 2.6, 1); glow.position.y = 1.9; g.add(glow);
     const label = makeLabel(code ? `${code}  ${m.name}` : m.name, { accent: m.color === '#ffffff' ? '#b79cff' : m.color }); label.position.y = 3.3; g.add(label);
     const decor = new THREE.Group(); g.add(decor);
     g.userData = { memorialId: m.id, orb, glow, decor, label, phase: Math.random() * 10, orbBaseY: 1.9, photo: null, smoke: [] };
@@ -498,7 +611,7 @@ export class World {
     g.position.copy(pos);
     this.scene.add(g);
     this.stars.set(m.id, g);
-    this.interactables.push({ id: m.id, kind: 'star', pos: pos.clone(), radius: 2.6, label: `${m.name}의 별 살펴보기`, memorialId: m.id });
+    this.interactables.push({ id: m.id, kind: 'star', pos: pos.clone(), radius: 3.6, label: `${m.name}의 별 살펴보기`, memorialId: m.id });
     this.refreshStarDecor(m);
     this.refreshStarPhoto(m);
     return g;
@@ -514,7 +627,7 @@ export class World {
       u.photo = photoSprite(m.color); u.photo.userData.setPhoto(list[u.photoIdx]); u.photo.position.y = 1.85; g.add(u.photo);
       u.orbBaseY = 3.1; u.orb.scale.setScalar(0.55); u.glow.scale.set(2.4, 2.4, 1); u.label.position.y = 4.1;
     } else {
-      u.orbBaseY = 1.9; u.orb.scale.setScalar(1); u.glow.scale.set(3.6, 3.6, 1); u.label.position.y = 3.3;
+      u.orbBaseY = 1.9; u.orb.scale.setScalar(1); u.glow.scale.set(2.6, 2.6, 1); u.label.position.y = 3.3;
     }
   }
   removeStar(id) {
@@ -572,7 +685,7 @@ export class World {
     }
     // 쓰다듬기 → 하트 반짝이 크기
     const pats = Math.min(1, m.offerings.pat / 80);
-    g.userData.glow.scale.set(3.6 + pats * 1.4, 3.6 + pats * 1.4, 1);
+    if (!m.photo) g.userData.glow.scale.set(2.6 + pats * 1.0, 2.6 + pats * 1.0, 1);
   }
 
   // 조약돌 탑: 올린 수만큼 돌이 쌓인다 (시각 상한 40)
@@ -641,6 +754,9 @@ export class World {
     this.hemi.intensity = 0.35 + 0.65 * s.amb; this.amb.intensity = 0.1 + 0.2 * s.amb;
     const ang = this.timeOfDay * Math.PI * 2 - Math.PI / 2;
     this.sun.position.set(Math.cos(ang) * 60, Math.max(8, Math.sin(ang) * 60), 25);
+    this.sunSprite.position.copy(this.sun.position).normalize().multiplyScalar(380);
+    this.sunSprite.material.opacity = 0.25 + 0.35 * s.amb;
+    this.sunSprite.material.color.copy(s.sun).lerp(new THREE.Color(0xfff3c4), 0.4);
     this.night = THREE.MathUtils.clamp(1 - (s.amb - 0.35) / 0.5, 0, 1);
     this.starMat.opacity = this.night * 0.95;
     this.fireflyMat.opacity = this.night * 0.95;
@@ -677,7 +793,7 @@ export class World {
         if (performance.now() - u.photoAt > 6000) { u.photoAt = performance.now(); u.photoIdx = (u.photoIdx + 1) % u.photoList.length; u.photo.userData.setPhoto(u.photoList[u.photoIdx]); }
       }
       if (u.photo) u.photo.position.y = 1.85 + Math.sin(t * 1.1 + u.phase) * 0.05;
-      u.glow.material.opacity = 0.6 + Math.sin(t * 2.2 + u.phase) * 0.15 + this.night * 0.2;
+      u.glow.material.opacity = 0.45 + Math.sin(t * 2.2 + u.phase) * 0.12 + this.night * 0.25;
     }
     for (const s of this.treeLeaves.children) s.material.opacity = 0.5 + Math.sin(t * 2 + s.userData.p) * 0.35;
     for (let i = this.animated.length - 1; i >= 0; i--) {
@@ -687,5 +803,126 @@ export class World {
     }
   }
 
-  render() { this.renderer.render(this.scene, this.camera); }
+  render() {
+    if (this.quality === 'high' && this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
+  }
 }
+
+// ═══════════════════════ 별의 방 (디오라마) ═══════════════════════
+// 별을 살펴보면 카메라가 다가가고, 별 둘레에 작은 파스텔 방이 펼쳐진다.
+const roomStd = (c, extra = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, ...extra });
+function wrapText(s, n) { const out = []; let cur = ''; for (const w of s.split(/\s+/)) { if ((cur + ' ' + w).trim().length > n) { out.push(cur.trim()); cur = w; } else cur += ' ' + w; } if (cur.trim()) out.push(cur.trim()); return out.slice(0, 3); }
+
+World.prototype.enterRoom = function (m, viewerPos) {
+  if (this.room) this.exitRoom(true);
+  const g = this.stars.get(m.id); if (!g) return null;
+  const u = g.userData;
+  const yaw = Math.atan2(viewerPos.x - g.position.x, viewerPos.z - g.position.z);
+  const room = new THREE.Group();
+  room.position.copy(g.position); room.rotation.y = yaw;
+  const col = new THREE.Color(m.color);
+  const tint = col.clone().lerp(new THREE.Color(0xffffff), 0.55);
+  const tint2 = col.clone().lerp(new THREE.Color(0xffffff), 0.8);
+
+  // 바닥 러그 + 뒷벽(반원) + 띠 + 천장 테
+  const rug = new THREE.Mesh(new THREE.CircleGeometry(3.4, 48), roomStd(tint2.getHex())); rug.rotation.x = -Math.PI / 2; rug.position.y = 0.035; rug.receiveShadow = true; room.add(rug);
+  const wall = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 4.6, 48, 1, true, Math.PI * 0.5, Math.PI), roomStd(0xfff9f1, { side: THREE.DoubleSide })); wall.position.y = 2.3; wall.receiveShadow = true; room.add(wall);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(3.41, 3.41, 1.1, 48, 1, true, Math.PI * 0.5, Math.PI), roomStd(tint.getHex(), { side: THREE.DoubleSide })); band.position.y = 0.55; room.add(band);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(3.4, 0.09, 8, 48, Math.PI), roomStd(tint.getHex())); rim.rotation.x = Math.PI / 2; rim.rotation.z = Math.PI; rim.position.y = 4.6; room.add(rim);
+  // 선반
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.12, 0.9), roomStd(0xf3e3d0)); shelf.position.set(0, 1.05, -2.55); shelf.castShadow = true; shelf.receiveShadow = true; room.add(shelf);
+  [-1.5, 1.5].forEach((x) => { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.0, 0.7), roomStd(0xe9d3bb)); leg.position.set(x, 0.5, -2.55); room.add(leg); });
+  // 액자
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.9, 0.08), roomStd(0xffffff)); frame.position.set(0, 2.75, -3.2); frame.castShadow = true; room.add(frame);
+  let photoMat;
+  if (m.photo) {
+    const tex = new THREE.TextureLoader().load(m.photo); tex.colorSpace = THREE.SRGBColorSpace;
+    photoMat = new THREE.MeshBasicMaterial({ map: tex });
+  } else photoMat = new THREE.MeshBasicMaterial({ color: tint2 });
+  const photo = new THREE.Mesh(new THREE.PlaneGeometry(1.62, 1.62), photoMat); photo.position.set(0, 2.75, -3.15); room.add(photo);
+  if (!m.photo) { const em = makeLabel({ dog: '🐶', cat: '🐱', rabbit: '🐰', bird: '🐦', hamster: '🐹' }[m.species] || '🐾', { bg: 'rgba(0,0,0,0)', accent: 'rgba(0,0,0,0)', font: 'bold 64px sans-serif', pad: 8 }); em.position.set(0.05, 2.75, -3.05); em.scale.multiplyScalar(1.6); room.add(em); }
+  // 명판들
+  const dates = (m.born || m.passed) ? `${(m.born || '').replace(/-/g, '.')} — ${(m.passed || '').replace(/-/g, '.')}` : '우리 곁에 있었던 날들';
+  const datePl = makeLabel(dates, { accent: m.color === '#ffffff' ? '#b79cff' : m.color, font: 'bold 36px sans-serif' }); datePl.position.set(0, 3.95, -3.05); datePl.scale.multiplyScalar(0.9); room.add(datePl);
+  const namePl = makeLabel(`${m.name}${m.breed ? ' · ' + m.breed : ''}`, { accent: m.color === '#ffffff' ? '#b79cff' : m.color }); namePl.position.set(0, 1.62, -3.0); room.add(namePl);
+  const lines = wrapText(m.epitaph, 22);
+  lines.forEach((ln, i) => { const l = makeLabel(ln, { bg: 'rgba(255,255,255,0.78)', accent: 'rgba(0,0,0,0)', font: '30px sans-serif', pad: 14 }); l.position.set(0, 1.32 - i * 0.3, -2.98); l.scale.multiplyScalar(0.78); room.add(l); });
+  // 선반 위 물건: 꽃병 / 초 / 향로 / 기억 상자
+  const items = new THREE.Group(); room.add(items); room.userData.items = items;
+  // 천장 등
+  for (let i = 0; i < 3; i++) {
+    const x = (i - 1) * 1.3;
+    const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.1, 4), roomStd(0xffffff)); wire.position.set(x * 1.4, 4.05, -0.3); room.add(wire);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 8), roomStd(0xfff1c9, { emissive: 0xffe3a0, emissiveIntensity: 1.4 })); bulb.position.set(x * 1.4, 3.45, -0.3); room.add(bulb);
+    const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xffe9b8, transparent: true, opacity: 0.7, depthWrite: false })); gl.scale.set(1.4, 1.4, 1); gl.position.copy(bulb.position); room.add(gl);
+  }
+  const lamp = new THREE.PointLight(0xffe9c4, 6, 9, 2); lamp.position.set(0, 3.4, -1.2); room.add(lamp);
+  // 작은 화분 둘
+  [[-2.6, -1.6], [2.6, -1.6]].forEach(([x, z]) => {
+    const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.4, 10), roomStd(0xf3e3d0)); pot.position.set(x, 0.2, z); pot.castShadow = true; room.add(pot);
+    for (let k = 0; k < 4; k++) { const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6), roomStd(0x9fe6a3)); leaf.scale.set(0.5, 1.4, 0.3); leaf.position.set(x + Math.cos(k * 1.6) * 0.12, 0.65 + k * 0.08, z + Math.sin(k * 1.6) * 0.12); leaf.rotation.z = Math.cos(k * 1.6) * 0.5; leaf.rotation.x = Math.sin(k * 1.6) * 0.5; room.add(leaf); }
+  });
+  room.traverse((o) => { if (o.isMesh && !o.isSprite) o.receiveShadow = true; });
+  this.scene.add(room);
+  this.room = { group: room, memorialId: m.id, yaw, t: 0 };
+  this.refreshRoomItems(m);
+  // 별 라벨/메달리온은 숨김 (액자가 대신한다)
+  if (u.label) u.label.visible = false; if (u.photo) u.photo.visible = false; u.orb.visible = false; u.glow.visible = false;
+  // 카메라 잠금 + 목표
+  const dir = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+  const target = g.position.clone().add(new THREE.Vector3(0, 1.9, 0)).add(dir.clone().multiplyScalar(-0.6));
+  const portrait = this.camera.aspect < 1;
+  const camPos = g.position.clone().add(dir.clone().multiplyScalar(portrait ? 7.4 : 5.6)).add(new THREE.Vector3(0, portrait ? 2.7 : 2.4, 0));
+  this.cameraLock = { pos: camPos, target, from: this.camera.position.clone(), lookFrom: target.clone().lerp(this.camera.position, 0.1), k: 0 };
+  const local = (x, z) => g.position.clone().add(new THREE.Vector3(x, 0, z).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw));
+  return { petSpot: local(1.3, 1.5), playerSpot: local(-2.5, 0.6), facing: yaw };
+};
+
+World.prototype.refreshRoomItems = function (m) {
+  if (!this.room || this.room.memorialId !== m.id) return;
+  const items = this.room.group.userData.items;
+  while (items.children.length) items.remove(items.children[0]);
+  const y = 1.11, z = -2.55;
+  // 꽃병
+  const vase = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.12, 0.42, 10), roomStd(0xdfe9ff)); vase.position.set(-1.2, y + 0.21, z); vase.castShadow = true; items.add(vase);
+  const nf = Math.min(9, 1 + Math.ceil(m.offerings.flower / 4));
+  for (let i = 0; i < nf; i++) { const a = (i / nf) * Math.PI * 2, r = 0.05 + (i % 2) * 0.11; const st = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.45, 4), roomStd(0x7fd78a)); st.position.set(-1.2 + Math.cos(a) * r, y + 0.6, z + Math.sin(a) * r); st.rotation.z = Math.cos(a) * 0.25; st.rotation.x = -Math.sin(a) * 0.25; items.add(st);
+    const fl = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), roomStd([0xff9fbe, 0xffe680, 0xffffff, 0xc9b6ff, 0xffb98a][i % 5])); fl.position.set(-1.2 + Math.cos(a) * r * 2.2, y + 0.85, z + Math.sin(a) * r * 2.2); items.add(fl); }
+  // 초
+  const nc = Math.min(5, Math.ceil(m.offerings.candle / 4));
+  for (let i = 0; i < nc; i++) { const x = 0.55 + i * 0.17; const c = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.28 + (i % 2) * 0.08, 8), roomStd(0xfff8ec)); c.position.set(x, y + 0.14, z + 0.15); c.castShadow = true; items.add(c);
+    const fl = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xffc46b, transparent: true, depthWrite: false })); fl.scale.set(0.3, 0.3, 1); fl.position.set(x, y + 0.36 + (i % 2) * 0.08, z + 0.15); items.add(fl); }
+  // 향로
+  const ni = Math.min(3, Math.ceil((m.offerings.incense || 0) / 3));
+  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.16, 12), roomStd(0xcbbfe6, { metalness: 0.25, roughness: 0.5 })); bowl.position.set(0, y + 0.08, z + 0.1); bowl.castShadow = true; items.add(bowl);
+  for (let i = 0; i < ni; i++) { const st = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.42, 4), roomStd(0x8a6a4a)); st.position.set((i - 1) * 0.05, y + 0.36, z + 0.1); st.rotation.z = (i - 1) * 0.08; items.add(st);
+    const em = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xff9a5c, transparent: true, depthWrite: false })); em.scale.set(0.14, 0.14, 1); em.position.set((i - 1) * 0.05, y + 0.57, z + 0.1); items.add(em);
+    for (let k = 0; k < 3; k++) { const sm = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xeae6f2, transparent: true, opacity: 0, depthWrite: false })); sm.userData = { k: k / 3, x: (i - 1) * 0.05 }; items.add(sm);
+      this.animated.push({ obj: sm, fn: (o, t) => { if (!o.parent) { o.userData.dead = true; return; } const life = (t * 0.25 + o.userData.k) % 1; o.position.set(o.userData.x + Math.sin(t + o.userData.k * 9) * 0.1 * life, y + 0.6 + life * 1.1, z + 0.1); const sc = 0.1 + life * 0.45; o.scale.set(sc, sc, 1); o.material.opacity = Math.sin(life * Math.PI) * 0.4; } }); } }
+  // 기억 상자 (항상)
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.26, 0.3), roomStd(0xfff3b0)); box.position.set(1.3, y + 0.13, z); box.castShadow = true; items.add(box);
+  const rib1 = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.28, 0.06), roomStd(0xff9fbe)); rib1.position.copy(box.position); items.add(rib1);
+  const rib2 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.28, 0.32), roomStd(0xff9fbe)); rib2.position.copy(box.position); items.add(rib2);
+  const bl = makeLabel('기억 상자', { font: 'bold 30px sans-serif', pad: 12 }); bl.position.set(1.3, y + 0.5, z + 0.2); bl.scale.multiplyScalar(0.55); items.add(bl);
+};
+
+World.prototype.exitRoom = function (silent) {
+  if (!this.room) return;
+  const g = this.stars.get(this.room.memorialId);
+  if (g) { const u = g.userData; if (u.label) u.label.visible = true; if (u.photo) u.photo.visible = true; u.orb.visible = true; u.glow.visible = true; }
+  this.scene.remove(this.room.group);
+  this.room.group.traverse((o) => { if (o.material && o.material.map && o.isMesh && o.material.map.image && o.material.map.image.src) o.material.map.dispose(); });
+  this.room = null;
+  this.cameraLock = null;
+};
+
+World.prototype.updateRoomCamera = function (dt, t) {
+  const L = this.cameraLock; if (!L) return;
+  L.k = Math.min(1, L.k + dt * 1.6);
+  const e = 1 - Math.pow(1 - L.k, 3);
+  const sway = new THREE.Vector3(Math.sin(t * 0.35) * 0.12, Math.sin(t * 0.5) * 0.05, 0);
+  this.camera.position.lerpVectors(L.from, L.pos, e).add(sway.multiplyScalar(e));
+  const look = new THREE.Vector3().lerpVectors(L.lookFrom, L.target, e);
+  this.camera.lookAt(look);
+};

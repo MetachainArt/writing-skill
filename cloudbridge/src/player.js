@@ -40,6 +40,8 @@ export class Player {
     const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.55, 16), new THREE.MeshBasicMaterial({ color: 0x3a3350, transparent: true, opacity: 0.16 }));
     shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; g.add(shadow);
     this.bodyParts = [body, scarf, head, face, hair, this.hatGroup];
+    g.traverse((o) => { if (o.isMesh && o !== shadow) o.castShadow = true; });
+    shadow.visible = false;
     this.handEmoji = null;
     this.tag = null;
     this.setHat('cone', '#a0e7e5');
@@ -51,6 +53,7 @@ export class Player {
   }
   setHat(kind, color) {
     while (this.hatGroup.children.length) this.hatGroup.remove(this.hatGroup.children[0]);
+    setTimeout(() => this.hatGroup.traverse((o) => { if (o.isMesh) o.castShadow = true; }), 0);
     const m = mat(new THREE.Color(color));
     if (kind === 'cone') { const h = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.6, 8), m); h.position.y = 0.6; this.hatGroup.add(h); }
     else if (kind === 'beanie') { const h = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2.4), m); h.position.y = 0.05; this.hatGroup.add(h); const pom = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), mat(0xffffff)); pom.position.y = 0.55; this.hatGroup.add(pom); }
@@ -135,6 +138,7 @@ export class Player {
     }
     this.bodyParts.forEach((p) => { p.position.y = (p.userData.baseY ??= p.position.y) + bob; });
     this.mesh.rotation.z = moving ? Math.sin(t * 10) * 0.04 : tilt;
+    if (this.world.cameraLock) return moving; // 별의 방: 카메라는 월드가 잡는다
     const cam = this.world.camera;
     const off = new THREE.Vector3(Math.sin(this.camYaw) * Math.cos(this.camPitch), Math.sin(this.camPitch), Math.cos(this.camYaw) * Math.cos(this.camPitch)).multiplyScalar(this.camDist);
     const want = this.pos.clone().add(off).add(new THREE.Vector3(0, 1.2, 0));

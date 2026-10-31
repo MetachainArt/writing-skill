@@ -81,6 +81,8 @@ export function buildPet(species, colorHex) {
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; g.add(shadow); g.userData.shadow = shadow;
 
   g.scale.setScalar(species === 'hamster' ? 0.55 : species === 'bird' ? 0.7 : species === 'rabbit' ? 0.8 : 1);
+  g.traverse((o) => { if (o.isMesh && o !== shadow) o.castShadow = true; });
+  shadow.visible = false; // 실제 그림자를 쓰므로 가짜 그림자는 끈다
   return g;
 }
 

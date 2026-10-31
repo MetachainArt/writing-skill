@@ -264,7 +264,7 @@ window.__cb = { teleport: (x, z) => player.teleport(new THREE.Vector3(x, 0, z)),
     const inRoom = !!world.room, isRoomStar = inRoom && world.room.memorialId === u.memorialId;
     if (u.label) { u.label.visible = !inRoom && dd < 9; u.label.material.opacity = Math.min(1, Math.max(0, (9 - dd) / 3)); }
     if (u.photo && !isRoomStar) u.photo.visible = !inRoom && dd < 40;
-    if (!isRoomStar) { const hide = inRoom && dd < 8; g.visible = !hide; u.glow.material.opacity = Math.min(u.glow.material.opacity, inRoom ? 0.2 : dd < 30 ? 0.7 : 0.3); }
+    if (!isRoomStar) { const hide = inRoom && dd < 12; g.visible = !hide; u.glow.material.opacity = Math.min(u.glow.material.opacity, inRoom ? 0.2 : dd < 30 ? 0.7 : 0.3); }
     else g.visible = true;
     u.decor.visible = dd < 45; }
   if (world.room) for (const a of agents.values()) { if (a !== roomAgent) a.mesh.visible = a.mesh.visible && Math.hypot(a.pos.x - pp.x, a.pos.z - pp.z) > 7; }
